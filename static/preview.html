@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge — Video Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#f0f0f0;min-height:100vh;}
+.header{background:#1a1a1a;border-bottom:1px solid #2a2a2a;padding:16px 20px;display:flex;align-items:center;gap:12px;}
+.logo{font-size:20px;font-weight:700;}.logo span{color:#a78bfa;}
+.hero{padding:32px 20px 20px;max-width:900px;margin:0 auto;text-align:center;}
+.hero h1{font-size:22px;font-weight:700;margin-bottom:10px;color:#fff;}
+.hero p{font-size:14px;color:#888;line-height:1.6;max-width:500px;margin:0 auto 24px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding:0 20px 40px;max-width:900px;margin:0 auto;}
+@media(max-width:500px){.grid{grid-template-columns:repeat(2,1fr);gap:10px;padding:0 12px 30px;}}
+.card{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;cursor:pointer;transition:transform .1s,border-color .12s;}
+.card:hover{transform:translateY(-2px);border-color:#7c3aed;}
+.thumb{position:relative;background:#111;}
+.thumb img{width:100%;display:block;object-fit:cover;}
+.tph{display:flex;align-items:center;justify-content:center;font-size:28px;background:#111;}
+.play-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3);opacity:0;transition:opacity .15s;}
+.card:hover .play-overlay{opacity:1;}
+.play-circle{width:44px;height:44px;border-radius:50%;background:rgba(124,58,237,.9);display:flex;align-items:center;justify-content:center;font-size:18px;}
+.fmt-tag{position:absolute;top:6px;left:6px;font-size:9px;background:rgba(124,58,237,.8);color:#fff;padding:2px 6px;border-radius:4px;font-weight:600;}
+.dur{position:absolute;bottom:6px;left:6px;font-size:9px;background:rgba(0,0,0,.7);color:#fff;padding:2px 5px;border-radius:3px;}
+.cb{padding:8px 10px;}
+.ct{font-size:11px;font-weight:500;color:#ddd;line-height:1.4;}
+.cta{background:#1a1a1a;border-top:1px solid #2a2a2a;padding:32px 20px;text-align:center;}
+.cta h2{font-size:18px;font-weight:600;margin-bottom:8px;}
+.cta p{font-size:13px;color:#888;margin-bottom:20px;}
+.cta-btn{display:inline-block;background:#7c3aed;color:#fff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;transition:opacity .15s;}
+.cta-btn:hover{opacity:.85;}
+.powered{text-align:center;padding:16px;font-size:11px;color:#444;}
+.powered span{color:#7c3aed;}
+
+/* Video modal */
+.vmb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.96);z-index:100;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;}
+.vmb.show{display:flex;}
+.vw{width:100%;max-width:420px;}
+.vw video{width:100%;border-radius:10px;max-height:80vh;}
+.vclose{background:none;border:1px solid #444;color:#ccc;font-size:13px;padding:6px 16px;border-radius:6px;cursor:pointer;}
+.loading{display:flex;align-items:center;justify-content:center;min-height:60vh;color:#555;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Clip<span>Forge</span></div>
+</div>
+
+<div id="app"><div class="loading">Loading preview...</div></div>
+
+<div class="vmb" id="vmod">
+  <div class="vw"><video id="vplayer" controls playsinline></video></div>
+  <button class="vclose" onclick="closeV()">Close</button>
+</div>
+
+<script>
+const token = window.location.pathname.split('/').pop();
+
+function dur(s){if(!s)return'0:00';return`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;}
+const asp=f=>f==='16:9'?'aspect-ratio:16/9':f==='1:1'?'aspect-ratio:1/1':'aspect-ratio:9/16';
+
+async function load(){
+  try{
+    const r=await fetch(`/api/previews/${token}`).then(x=>x.json());
+    const {preview,clips}=r;
+    if(!clips.length){
+      document.getElementById('app').innerHTML='<div class="loading">No approved clips in this preview yet.</div>';
+      return;
+    }
+    document.title=`${preview.title||'ClipForge Preview'}`;
+    document.getElementById('app').innerHTML=`
+      <div class="hero">
+        <h1>${preview.title||'Your Video Clips Are Ready'}</h1>
+        <p>${preview.message||'Here are the clips we created from your video. Click any clip to watch it.'}</p>
+      </div>
+      <div class="grid">
+        ${clips.map(c=>`
+          <div class="card" onclick="watchClip(${c.id})">
+            <div class="thumb" style="${asp(c.format||'9:16')}">
+              ${c.thumbnail_path
+                ?`<img src="/api/clips/${c.id}/thumbnail" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
+                :`<div class="tph" style="width:100%;height:100%;">🎬</div>`}
+              ${c.format&&c.format!=='9:16'?`<div class="fmt-tag">${c.format}</div>`:''}
+              <div class="dur">${dur(c.duration_sec)}</div>
+              <div class="play-overlay"><div class="play-circle">▶</div></div>
+            </div>
+            <div class="cb"><div class="ct">${c.title||'Clip'}</div></div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="cta">
+        <h2>Want clips like these every week?</h2>
+        <p>We turn your long-form videos into ready-to-post short clips for TikTok, Instagram Reels, and YouTube Shorts — automatically.</p>
+        <a href="mailto:your@email.com" class="cta-btn">Get in touch →</a>
+      </div>
+      <div class="powered">Powered by <span>ClipForge</span></div>
+    `;
+  }catch(e){
+    document.getElementById('app').innerHTML='<div class="loading">Preview not found or expired.</div>';
+  }
+}
+
+function watchClip(id){
+  document.getElementById('vplayer').src=`/api/clips/${id}/file`;
+  document.getElementById('vplayer').load();
+  document.getElementById('vplayer').play();
+  document.getElementById('vmod').classList.add('show');
+}
+function closeV(){
+  document.getElementById('vplayer').pause();
+  document.getElementById('vplayer').src='';
+  document.getElementById('vmod').classList.remove('show');
+}
+
+load();
+</script>
+</body>
+</html>

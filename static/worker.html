@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0a0a0a;color:#e8e8e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+.topbar{display:flex;align-items:center;padding:12px 20px;background:#111;border-bottom:1px solid #1a1a1a;gap:10px;}
+.logo{font-size:18px;font-weight:800;color:#fff;}.logo span{color:#f97316;}
+.vbadge{font-size:10px;font-weight:700;background:#1a0f00;color:#fbbf24;border:1px solid #f97316;padding:2px 7px;border-radius:10px;}
+.main{max-width:700px;margin:60px auto;padding:0 20px;}
+h2{font-size:22px;font-weight:700;margin-bottom:8px;}
+.sub{color:#666;font-size:13px;margin-bottom:32px;}
+.card{background:#111;border:1px solid #1a1a1a;border-radius:12px;padding:24px;margin-bottom:16px;}
+.card label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:6px;}
+select,input{width:100%;background:#0d0d0d;border:1px solid #222;border-radius:7px;color:#e8e8e0;font-size:13px;padding:10px 12px;outline:none;font-family:inherit;margin-bottom:14px;}
+select:focus,input:focus{border-color:#f97316;}
+.btn{width:100%;background:linear-gradient(135deg,#f97316,#fbbf24);border:none;border-radius:8px;color:#000;font-size:14px;font-weight:800;padding:12px;cursor:pointer;font-family:inherit;}
+.btn:hover{opacity:.88;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.prog{display:none;margin-top:20px;}
+.prog-bar{height:4px;background:#1a1a1a;border-radius:4px;overflow:hidden;margin-bottom:8px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,#f97316,#fbbf24);border-radius:4px;transition:width .5s;}
+.prog-label{font-size:12px;color:#888;text-align:center;}
+.clips-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:24px;}
+.clip-card{background:#111;border:1px solid #1a1a1a;border-radius:10px;overflow:hidden;}
+.clip-card video{width:100%;display:block;}
+.clip-info{padding:10px;}
+.clip-title{font-size:11px;color:#aaa;margin-bottom:8px;}
+.dl-btn{width:100%;background:#1a0f00;border:1px solid #f97316;color:#fbbf24;font-size:11px;font-weight:600;padding:6px;border-radius:6px;cursor:pointer;font-family:inherit;}
+.dl-btn:hover{background:#2a1800;}
+.err{background:#1a0000;border:1px solid #5a1515;border-radius:8px;padding:10px 14px;font-size:12px;color:#f87171;margin-top:12px;display:none;}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">Clip<span>Forge</span></div>
+  <span class="vbadge">v5.5</span>
+</div>
+<div class="main">
+  <h2>Create Clips</h2>
+  <div class="sub">Paste a video URL and select a client to get started.</div>
+  <div class="card">
+    <label>Client</label>
+    <select id="clientSel"><option value="">Loading clients...</option></select>
+    <label>Video URL</label>
+    <input type="text" id="urlIn" placeholder="YouTube, Instagram, Facebook, TikTok...">
+    <label>Mode</label>
+    <select id="modeSel">
+      <option value="demo">🎬 Demo — 3 x 20s clips (for pitching)</option>
+      <option value="package">📦 Package — 3 full clips (for clients)</option>
+    </select>
+    <button class="btn" id="submitBtn" onclick="submit()">Process Video</button>
+    <div class="err" id="err"></div>
+  </div>
+  <div class="prog" id="prog">
+    <div class="prog-bar"><div class="prog-fill" id="progFill" style="width:0%"></div></div>
+    <div class="prog-label" id="progLabel">Starting...</div>
+  </div>
+  <div class="clips-grid" id="clipsGrid"></div>
+</div>
+<script>
+let activeJob=null,pollT=null;
+
+async function api(m,p,b){
+  const o={method:m,headers:{}};
+  if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}
+  const r=await fetch(p,o);
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+}
+
+async function loadClients(){
+  const clients=await api('GET','/api/clients/');
+  const sel=document.getElementById('clientSel');
+  sel.innerHTML=clients.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+}
+
+async function submit(){
+  const url=document.getElementById('urlIn').value.trim();
+  const clientId=document.getElementById('clientSel').value;
+  const mode=document.getElementById('modeSel').value;
+  if(!url||!clientId)return;
+  document.getElementById('err').style.display='none';
+  document.getElementById('submitBtn').disabled=true;
+  document.getElementById('submitBtn').textContent='Processing...';
+  document.getElementById('prog').style.display='block';
+  document.getElementById('clipsGrid').innerHTML='';
+  try{
+    const fd=new FormData();
+    fd.append('client_id',clientId);
+    fd.append('url',url);
+    const endpoint=mode==='demo'?'/api/jobs/demo':'/api/jobs/submit-url';
+    if(mode==='package'){
+      fd.append('format','16:9');
+      fd.append('burn_captions','1');
+      fd.append('apply_watermark','1');
+      fd.append('package_mode','1');
+    }
+    const r=await fetch(endpoint,{method:'POST',body:fd});
+    const d=await r.json();
+    activeJob=d.job_id;
+    poll();
+  }catch(e){
+    showErr(e.message);
+    reset();
+  }
+}
+
+function poll(){
+  if(pollT)clearInterval(pollT);
+  pollT=setInterval(async()=>{
+    try{
+      const j=await api('GET',`/api/jobs/${activeJob}`);
+      document.getElementById('progFill').style.width=(j.progress||0)+'%';
+      document.getElementById('progLabel').textContent=(j.current_step||'Processing...')+' — '+(j.progress||0)+'%';
+      if(j.status==='done'){
+        clearInterval(pollT);
+        reset();
+        loadClips();
+      }else if(j.status==='error'){
+        clearInterval(pollT);
+        showErr(j.error||'Something went wrong.');
+        reset();
+      }
+    }catch(e){clearInterval(pollT);}
+  },2000);
+}
+
+async function loadClips(){
+  const clientId=document.getElementById('clientSel').value;
+  const clips=await api('GET',`/api/clips/?client_id=${clientId}`);
+  const recent=clips.slice(0,6);
+  document.getElementById('clipsGrid').innerHTML=recent.map(c=>`
+    <div class="clip-card">
+      <video src="/api/clips/${c.id}/file" controls playsinline style="max-height:200px;"></video>
+      <div class="clip-info">
+        <div class="clip-title">${c.title||'Clip '+c.id}</div>
+        <button class="dl-btn" onclick="dl(${c.id})">↓ Download</button>
+      </div>
+    </div>`).join('');
+}
+
+function dl(id){const a=document.createElement('a');a.href=`/api/clips/${id}/file`;a.download=`clip_${id}.mp4`;a.click();}
+function showErr(msg){const e=document.getElementById('err');e.textContent='⚠ '+msg;e.style.display='block';}
+function reset(){document.getElementById('submitBtn').disabled=false;document.getElementById('submitBtn').textContent='Process Video';}
+
+loadClients();
+</script>
+</body>
+</html>

@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge Editor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;color:#e8e8f0;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;padding:10px 20px;background:#111118;border-bottom:1px solid #1e1e2e;gap:12px;flex-shrink:0;}
+.back-btn{display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer;padding:5px 10px;border-radius:6px;border:1px solid #1e1e2e;background:none;font-family:inherit;transition:all .12s;}
+.back-btn:hover{border-color:#333;color:#ccc;}
+.editor-title{font-size:14px;font-weight:600;color:#fff;}
+.save-btn{margin-left:auto;background:#6366f1;border:none;color:#fff;font-size:13px;font-weight:700;padding:8px 20px;border-radius:8px;cursor:pointer;font-family:inherit;transition:opacity .15s;}
+.save-btn:hover{opacity:.88;}
+.save-btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* Main layout — 3 panels */
+.editor-layout{display:flex;flex:1;overflow:hidden;}
+
+/* Left — segment list */
+.seg-panel{width:300px;flex-shrink:0;background:#0d0d14;border-right:1px solid #1e1e2e;display:flex;flex-direction:column;overflow:hidden;}
+.seg-panel-header{padding:12px 14px;border-bottom:1px solid #1e1e2e;display:flex;align-items:center;justify-content:space-between;}
+.seg-panel-title{font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;}
+.seg-list{flex:1;overflow-y:auto;padding:8px;}
+.seg-item{background:#111118;border:1px solid #1e1e2e;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all .12s;}
+.seg-item:hover{border-color:#333;}
+.seg-item.active{border-color:#6366f1;background:#1a1535;}
+.seg-time{font-size:10px;color:#444;font-family:monospace;margin-bottom:5px;}
+.seg-text{font-size:12px;color:#ccc;line-height:1.4;}
+.seg-item.active .seg-text{color:#fff;}
+.seg-edit-wrap{margin-top:6px;display:none;}
+.seg-item.active .seg-edit-wrap{display:block;}
+.seg-input{width:100%;background:#0d0d14;border:1px solid #6366f1;border-radius:5px;color:#fff;font-size:12px;padding:5px 8px;outline:none;font-family:inherit;resize:none;}
+.seg-actions{display:flex;gap:5px;margin-top:5px;}
+.seg-btn{font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #1e1e2e;background:none;color:#555;cursor:pointer;font-family:inherit;transition:all .12s;}
+.seg-btn:hover{border-color:#333;color:#aaa;}
+.seg-btn.primary{border-color:#6366f1;color:#a5b4fc;background:#1a1535;}
+
+/* Center — video preview */
+.video-panel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0a0f;padding:20px;gap:12px;}
+.video-container{position:relative;max-width:340px;width:100%;}
+.video-container video{width:100%;border-radius:12px;background:#000;}
+.video-controls{display:flex;align-items:center;gap:10px;width:100%;max-width:340px;}
+.time-display{font-size:11px;color:#555;font-family:monospace;min-width:80px;}
+.play-btn{background:#6366f1;border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+
+/* Right — style panel */
+.style-panel{width:280px;flex-shrink:0;background:#0d0d14;border-left:1px solid #1e1e2e;overflow-y:auto;padding:14px;}
+.sp-section{margin-bottom:20px;}
+.sp-title{font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
+.sp-toggle{font-size:10px;color:#6366f1;cursor:pointer;}
+
+/* Preset buttons — Saved style Ag icons */
+.preset-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
+.preset-card{background:#13131e;border:2px solid #1e1e2e;border-radius:8px;padding:8px 4px;cursor:pointer;text-align:center;transition:all .12s;}
+.preset-card.sel{border-color:#6366f1;background:#1a1535;}
+.preset-card:hover:not(.sel){border-color:#333;}
+.preset-card-label{font-size:16px;font-weight:800;margin-bottom:3px;line-height:1;}
+.preset-card-name{font-size:9px;color:#555;}
+.preset-card.sel .preset-card-name{color:#a5b4fc;}
+
+/* Color swatches */
+.color-swatches{display:flex;gap:6px;flex-wrap:wrap;}
+.swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .12s;}
+.swatch.sel{border-color:#fff;}
+.swatch.black-swatch{background:#111;border-color:#555;}
+.swatch.black-swatch.sel{border-color:#fff;}
+
+/* Font size */
+.size-control{display:flex;align-items:center;gap:10px;}
+.size-control input[type=range]{flex:1;accent-color:#6366f1;}
+.size-label{font-size:12px;color:#6366f1;font-family:monospace;min-width:40px;text-align:right;}
+
+/* Position */
+.pos-btns{display:flex;gap:6px;}
+.pos-btn{flex:1;font-size:11px;padding:6px;border-radius:6px;border:1px solid #1e1e2e;background:#13131e;color:#555;cursor:pointer;font-family:inherit;text-align:center;transition:all .12s;}
+.pos-btn.sel{border-color:#6366f1;color:#a5b4fc;background:#1a1535;}
+
+/* Font select */
+.font-select{width:100%;background:#13131e;border:1px solid #1e1e2e;border-radius:6px;color:#aaa;font-size:12px;padding:7px 10px;cursor:pointer;font-family:inherit;}
+
+/* Subtitles toggle */
+.subtitle-row{display:flex;align-items:center;justify-content:space-between;}
+.subtitle-label{font-size:13px;font-weight:600;color:#fff;}
+.toggle-switch{width:44px;height:24px;background:#1e1e2e;border-radius:12px;cursor:pointer;position:relative;transition:background .2s;}
+.toggle-switch.on{background:#6366f1;}
+.toggle-switch::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:3px;transition:left .2s;}
+.toggle-switch.on::after{left:23px;}
+
+/* Loading */
+.loading{display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:13px;}
+.toast{position:fixed;bottom:20px;right:20px;font-size:12px;font-weight:600;padding:10px 16px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:999;}
+.toast.show{opacity:1;}
+.toast.success{background:#065f46;color:#6ee7b7;}
+.toast.error{background:#b91c1c;color:#fecaca;}
+.toast.info{background:#6366f1;color:#fff;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <button class="back-btn" onclick="goBack()">← Back</button>
+  <div class="editor-title" id="editorTitle">Caption Editor</div>
+  <button class="save-btn" id="saveBtn" onclick="saveAndReburn()">Save & Re-Process</button>
+</div>
+
+<div class="editor-layout">
+
+  <!-- Left: Segment list -->
+  <div class="seg-panel">
+    <div class="seg-panel-header">
+      <span class="seg-panel-title">Captions</span>
+      <span style="font-size:10px;color:#444;" id="segCount">0 segments</span>
+    </div>
+    <div class="seg-list" id="segList">
+      <div class="loading">Loading captions...</div>
+    </div>
+  </div>
+
+  <!-- Center: Video -->
+  <div class="video-panel">
+    <div class="video-container">
+      <video id="videoEl" controls playsinline></video>
+    </div>
+    <div style="font-size:11px;color:#444;text-align:center;max-width:340px;line-height:1.5;">
+      Click a caption segment to jump to that moment in the video
+    </div>
+  </div>
+
+  <!-- Right: Style panel -->
+  <div class="style-panel">
+
+    <div class="sp-section">
+      <div class="subtitle-row">
+        <span class="subtitle-label">Subtitles</span>
+        <div class="toggle-switch on" id="subtitleToggle" onclick="toggleSubtitles()"></div>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Text Appearance</div>
+      <div class="preset-grid" id="presetGrid">
+        <div class="preset-card sel" data-p="bold" onclick="selPreset(this)">
+          <div class="preset-card-label" style="color:white;text-shadow:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000;">Ag</div>
+          <div class="preset-card-name">Bold</div>
+        </div>
+        <div class="preset-card" data-p="outlined" onclick="selPreset(this)">
+          <div class="preset-card-label" style="color:white;-webkit-text-stroke:2px black;">Ag</div>
+          <div class="preset-card-name">Outlined</div>
+        </div>
+        <div class="preset-card" data-p="shadow" onclick="selPreset(this)">
+          <div class="preset-card-label" style="color:white;text-shadow:3px 3px 6px rgba(0,0,0,.9);">Ag</div>
+          <div class="preset-card-name">Shadow</div>
+        </div>
+        <div class="preset-card" data-p="minimal" onclick="selPreset(this)">
+          <div class="preset-card-label" style="color:white;font-weight:400;">Ag</div>
+          <div class="preset-card-name">Minimal</div>
+        </div>
+        <div class="preset-card" data-p="box" onclick="selPreset(this)">
+          <div class="preset-card-label" style="color:white;background:#333;padding:2px 4px;border-radius:3px;">Ag</div>
+          <div class="preset-card-name">Box</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Outline Color</div>
+      <div class="color-swatches" id="outlineSwatches">
+        <div class="swatch sel" style="background:#111;border:2px solid #555" data-c="black" onclick="selOutline(this)" title="Black"></div>
+        <div class="swatch" style="background:#fff" data-c="white" onclick="selOutline(this)" title="White"></div>
+        <div class="swatch" style="background:#ffff00" data-c="yellow" onclick="selOutline(this)" title="Yellow"></div>
+        <div class="swatch" style="background:#ff4444" data-c="red" onclick="selOutline(this)" title="Red"></div>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Text Color</div>
+      <div class="color-swatches" id="textSwatches">
+        <div class="swatch sel" style="background:#fff" data-c="white" onclick="selTextColor(this)" title="White"></div>
+        <div class="swatch" style="background:#ffff00" data-c="yellow" onclick="selTextColor(this)" title="Yellow"></div>
+        <div class="swatch" style="background:#00ffff" data-c="cyan" onclick="selTextColor(this)" title="Cyan"></div>
+        <div class="swatch" style="background:#ff00ff" data-c="magenta" onclick="selTextColor(this)" title="Magenta"></div>
+        <div class="swatch" style="background:#ff8800" data-c="orange" onclick="selTextColor(this)" title="Orange"></div>
+        <div class="swatch" style="background:#ff4444" data-c="red" onclick="selTextColor(this)" title="Red"></div>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Font Size <span style="font-size:10px;color:#6366f1;" id="fontSizeDisplay">Auto</span></div>
+      <div class="size-control">
+        <input type="range" id="fontSizeSlider" min="40" max="140" value="40" oninput="updFontSize()">
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#333;margin-top:4px;">
+        <span>Auto</span><span>140pt</span>
+      </div>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Font</div>
+      <select class="font-select" id="fontSelect" onchange="updFont()">
+        <option value="Bebas Neue">Bebas Neue</option>
+        <option value="Impact">Impact</option>
+        <option value="Arial">Arial</option>
+        <option value="Helvetica">Helvetica</option>
+      </select>
+    </div>
+
+    <div class="sp-section">
+      <div class="sp-title">Positioning & Outline</div>
+      <div class="pos-btns" id="posBtns">
+        <button class="pos-btn" data-pos="top" onclick="selPos(this)">Top</button>
+        <button class="pos-btn sel" data-pos="bottom" onclick="selPos(this)">Bottom</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const clipId = parseInt(window.location.pathname.split('/').pop());
+let clip = null;
+let chunks = [];
+let activeIdx = null;
+let subtitlesOn = true;
+
+// Style state
+let curPreset = 'bold';
+let curTextColor = 'white';
+let curOutlineColor = 'black';
+let curFont = 'Bebas Neue';
+let curFontSize = 0;
+let curPosition = 'bottom';
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function load() {
+  try {
+    const data = await api('GET', `/api/clips/${clipId}/chunks`);
+    clip = data.clip;
+    chunks = data.chunks || [];
+
+    // Load clip style settings
+    curPreset = clip.caption_preset || 'bold';
+    curTextColor = clip.caption_color || 'white';
+    curOutlineColor = clip.outline_color || 'black';
+    curFont = clip.caption_font || 'Bebas Neue';
+    curFontSize = clip.font_size || 0;
+    curPosition = clip.caption_position || 'bottom';
+
+    // Apply to UI
+    document.getElementById('fontSelect').value = curFont;
+    if (curFontSize > 40) {
+      document.getElementById('fontSizeSlider').value = curFontSize;
+      document.getElementById('fontSizeDisplay').textContent = curFontSize + 'pt';
+    }
+
+    // Select active preset
+    document.querySelectorAll('.preset-card').forEach(el => el.classList.toggle('sel', el.dataset.p === curPreset));
+    document.querySelectorAll('#outlineSwatches .swatch').forEach(el => el.classList.toggle('sel', el.dataset.c === curOutlineColor));
+    document.querySelectorAll('#textSwatches .swatch').forEach(el => el.classList.toggle('sel', el.dataset.c === curTextColor));
+    document.querySelectorAll('.pos-btn').forEach(el => el.classList.toggle('sel', el.dataset.pos === curPosition));
+
+    // Set video
+    document.getElementById('videoEl').src = `/api/clips/${clipId}/file`;
+    document.getElementById('editorTitle').textContent = clip.title || 'Caption Editor';
+
+    renderSegments();
+  } catch(e) {
+    document.getElementById('segList').innerHTML = `<div class="loading" style="color:#f87171;">Failed to load: ${e.message}</div>`;
+  }
+}
+
+function renderSegments() {
+  document.getElementById('segCount').textContent = chunks.length + ' segments';
+  if (!chunks.length) {
+    document.getElementById('segList').innerHTML = '<div class="loading">No captions found for this clip.</div>';
+    return;
+  }
+
+  document.getElementById('segList').innerHTML = chunks.map((c, i) => `
+    <div class="seg-item ${activeIdx === i ? 'active' : ''}" id="seg${i}" onclick="selectSeg(${i})">
+      <div class="seg-time">${fmtTime(c.start)} — ${fmtTime(c.end)}</div>
+      <div class="seg-text">${c.text}</div>
+      <div class="seg-edit-wrap">
+        <textarea class="seg-input" id="input${i}" rows="2" onkeydown="handleKey(event,${i})">${c.text}</textarea>
+        <div class="seg-actions">
+          <button class="seg-btn" onclick="event.stopPropagation();cancelEdit(${i})">Cancel</button>
+          <button class="seg-btn primary" onclick="event.stopPropagation();applyEdit(${i})">Apply</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  if (activeIdx !== null) {
+    const el = document.getElementById(`seg${activeIdx}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function selectSeg(i) {
+  activeIdx = i;
+  renderSegments();
+  // Seek video to segment start
+  const video = document.getElementById('videoEl');
+  video.currentTime = chunks[i].start;
+  // Focus the textarea
+  setTimeout(() => {
+    const inp = document.getElementById(`input${i}`);
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+}
+
+function handleKey(e, i) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyEdit(i); }
+  if (e.key === 'Escape') cancelEdit(i);
+}
+
+function applyEdit(i) {
+  const inp = document.getElementById(`input${i}`);
+  if (!inp) return;
+  chunks[i].text = inp.value.trim().toUpperCase();
+  activeIdx = null;
+  renderSegments();
+  toast('Caption updated — hit Save & Re-Process when done', 'info');
+}
+
+function cancelEdit(i) {
+  const inp = document.getElementById(`input${i}`);
+  if (inp) inp.value = chunks[i].text;
+  activeIdx = null;
+  renderSegments();
+}
+
+async function saveAndReburn() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = 'Processing...';
+  try {
+    await api('POST', `/api/clips/${clipId}/chunks`, {
+      chunks,
+      caption_font: curFont,
+      caption_color: curTextColor,
+      outline_color: curOutlineColor,
+      caption_preset: curPreset,
+      font_size: curFontSize || 0,
+      caption_position: curPosition,
+    });
+    toast('Captions saved and re-burned!', 'success');
+    setTimeout(() => goBack(), 1500);
+  } catch(e) {
+    toast('Failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save & Re-Process';
+  }
+}
+
+function toggleSubtitles() {
+  subtitlesOn = !subtitlesOn;
+  document.getElementById('subtitleToggle').classList.toggle('on', subtitlesOn);
+}
+
+function selPreset(el) {
+  curPreset = el.dataset.p;
+  document.querySelectorAll('.preset-card').forEach(b => b.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function selTextColor(el) {
+  curTextColor = el.dataset.c;
+  document.querySelectorAll('#textSwatches .swatch').forEach(d => d.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function selOutline(el) {
+  curOutlineColor = el.dataset.c;
+  document.querySelectorAll('#outlineSwatches .swatch').forEach(d => d.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function selPos(el) {
+  curPosition = el.dataset.pos;
+  document.querySelectorAll('.pos-btn').forEach(b => b.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function updFontSize() {
+  const v = parseInt(document.getElementById('fontSizeSlider').value);
+  curFontSize = v === 40 ? 0 : v;
+  document.getElementById('fontSizeDisplay').textContent = v === 40 ? 'Auto' : v + 'pt';
+}
+
+function updFont() {
+  curFont = document.getElementById('fontSelect').value;
+}
+
+function fmtTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = (s % 60).toFixed(2).padStart(5, '0');
+  return `${String(m).padStart(2,'0')}:${sec}`;
+}
+
+function goBack() {
+  window.location.href = '/';
+}
+
+function toast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+load();
+</script>
+</body>
+</html>

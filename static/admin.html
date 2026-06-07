@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>ClipForge v2.0</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#e8e8e0;min-height:100vh;}
+
+/* Colors: orange/gold theme matching logo */
+:root{
+  --accent:#f97316;
+  --accent2:#fb923c;
+  --gold:#fbbf24;
+  --bg:#0a0a0a;
+  --bg2:#111111;
+  --bg3:#1a1a1a;
+  --border:#2a2a2a;
+  --border2:#333;
+  --text:#e8e8e0;
+  --muted:#888;
+  --dim:#444;
+}
+
+/* Topbar */
+.topbar{display:flex;align-items:center;padding:10px 20px;background:#111;border-bottom:1px solid var(--border);gap:12px;position:sticky;top:0;z-index:50;}
+.logo{display:flex;align-items:center;gap:10px;}
+.logo img{width:36px;height:36px;border-radius:8px;}
+.logo-text{font-size:18px;font-weight:800;letter-spacing:-0.5px;color:#fff;}
+.logo-text span{color:var(--accent);}
+.vbadge{font-size:10px;font-weight:700;background:#1a0f00;color:var(--gold);border:1px solid var(--accent);padding:2px 7px;border-radius:10px;}
+.nav{display:flex;gap:4px;margin-left:auto;}
+.nav a{font-size:12px;padding:5px 12px;border-radius:6px;color:var(--muted);text-decoration:none;transition:all .15s;}
+.nav a:hover,.nav a.on{background:var(--bg3);color:var(--text);}
+
+/* Layout */
+.layout{display:flex;height:calc(100vh - 49px);}
+
+/* Sidebar */
+.sidebar{width:220px;flex-shrink:0;background:#0d0d0d;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.sidebar-inner{flex:1;overflow-y:auto;padding:12px;}
+@media(max-width:700px){.sidebar{display:none;}}
+.sidebar-label{font-size:10px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;padding:0 4px;}
+.ci{display:flex;align-items:center;gap:8px;padding:8px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:all .12s;margin-bottom:3px;}
+.ci.active{background:#1a0f00;border-color:var(--accent);}
+.ci:not(.active):hover{background:var(--bg3);}
+.cavatar{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
+.cname{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+.cedit{font-size:11px;color:var(--dim);cursor:pointer;padding:3px 5px;border-radius:4px;flex-shrink:0;}
+.cedit:hover{color:var(--muted);background:var(--bg3);}
+.cbar{height:2px;background:var(--border);border-radius:2px;margin-top:3px;overflow:hidden;}
+.cfill{height:100%;background:var(--accent);}
+.add-client{font-size:11px;color:var(--dim);padding:7px 8px;border:1px dashed var(--border);border-radius:7px;background:none;cursor:pointer;width:100%;text-align:left;font-family:inherit;margin-top:6px;transition:all .12s;}
+.add-client:hover{border-color:var(--accent);color:var(--accent);}
+.sidebar-stats{padding:10px 12px;border-top:1px solid #1a1a1a;background:var(--bg);}
+.stat-row{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;}
+.stat-val{color:var(--accent);font-weight:600;}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;}
+
+/* Submit */
+.submit-area{padding:12px 16px;background:#0d0d0d;border-bottom:1px solid var(--border);}
+.url-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.url-wrap{flex:1;min-width:200px;display:flex;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:0 12px;transition:border-color .15s;}
+.url-wrap:focus-within{border-color:var(--accent);}
+.url-wrap input{flex:1;background:none;border:none;color:var(--text);font-size:13px;padding:10px 0;outline:none;}
+.url-wrap input::placeholder{color:var(--dim);}
+.btn{font-size:12px;padding:0 14px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .12s;}
+.btn:hover{border-color:var(--border2);color:var(--text);}
+.btn-opts{font-size:12px;padding:0 12px;height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;font-family:inherit;transition:all .12s;}
+.btn-opts.on{border-color:var(--accent);color:var(--gold);background:#1a0f00;}
+.btn-logo-test{background:#0f1a00;border:1px solid #4a7c00;color:#84cc16;font-size:12px;font-weight:600;padding:0 14px;height:38px;border-radius:8px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:all .15s;}
+.btn-logo-test:hover{background:#1a2e00;}
+.btn-logo-test:disabled{opacity:.4;cursor:not-allowed;}
+.btn-pkg{background:#1a0f00;border:1px solid var(--accent);color:var(--gold);font-size:12px;font-weight:600;padding:0 14px;height:38px;border-radius:8px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:all .15s;}
+.btn-pkg:hover{background:#2a1800;}
+.btn-pkg:disabled{opacity:.4;cursor:not-allowed;}
+.btn-process{background:linear-gradient(135deg,var(--accent),var(--gold));border:none;color:#000;font-size:13px;font-weight:800;padding:0 20px;height:38px;border-radius:8px;cursor:pointer;white-space:nowrap;font-family:inherit;transition:opacity .15s;}
+.btn-process:hover{opacity:.88;}
+.btn-process:disabled{opacity:.35;cursor:not-allowed;}
+
+/* Options panel */
+.opts-panel{background:#0d0d0d;border-bottom:1px solid var(--border);overflow:hidden;max-height:0;transition:max-height .3s ease;}
+.opts-panel.open{max-height:300px;}
+.opts-inner{padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;}
+.og{display:flex;flex-direction:column;gap:6px;min-width:110px;}
+.ol{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;font-weight:600;}
+.preset-row{display:flex;gap:5px;flex-wrap:wrap;}
+.pbtn{font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;font-family:inherit;transition:all .12s;}
+.pbtn.sel{border-color:var(--accent);color:var(--gold);background:#1a0f00;}
+.pbtn:not(.sel):hover{border-color:var(--border2);color:var(--text);}
+.color-row{display:flex;gap:6px;flex-wrap:wrap;}
+.cdot{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .12s;}
+.cdot.sel{border-color:#fff;}
+.osel{background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;padding:5px 8px;cursor:pointer;font-family:inherit;}
+.osel:focus{border-color:var(--accent);outline:none;}
+.size-row{display:flex;align-items:center;gap:8px;}
+.size-row input[type=range]{flex:1;accent-color:var(--accent);}
+.size-val{font-size:11px;color:var(--accent);font-family:monospace;min-width:36px;}
+.trow{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);cursor:pointer;}
+.trow input{accent-color:var(--accent);}
+
+/* Error */
+.err-bar{background:#1a0000;border:1px solid #5a1515;border-radius:8px;padding:10px 14px;margin:8px 16px;font-size:12px;color:#f87171;display:none;}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:6px;align-items:center;padding:8px 16px;background:#0d0d0d;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.filt{font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-family:inherit;transition:all .12s;}
+.filt.on{border-color:var(--accent);color:var(--gold);background:#1a0f00;}
+.filt:not(.on):hover{border-color:var(--border2);color:var(--text);}
+.btn-aap{font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid #14532d;background:#052e16;color:#4ade80;cursor:pointer;font-family:inherit;}
+.btn-aap:hover{background:#14532d;}
+.btn-shr{font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid #1e3a5f;background:#0f2033;color:#60a5fa;cursor:pointer;font-family:inherit;}
+.btn-shr:hover{background:#1e3a5f;}
+.btn-bulk{font-size:11px;padding:4px 12px;border-radius:20px;border:1px solid #1e3a5f;background:#0f2033;color:#60a5fa;cursor:pointer;font-family:inherit;}
+.cc{margin-left:auto;font-size:11px;color:var(--dim);}
+
+/* Clips */
+.clips-area{flex:1;overflow-y:auto;padding:14px;background:var(--bg);}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:12px;}
+@media(max-width:600px){.grid{grid-template-columns:repeat(2,1fr);gap:8px;}}
+.card{background:#111;border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:all .15s;}
+.card:hover{border-color:var(--border2);transform:translateY(-1px);}
+.card.approved{border-color:var(--accent);border-width:2px;}
+.card.rejected{opacity:.3;}
+.thumb{position:relative;background:var(--bg);}
+.thumb img{width:100%;display:block;object-fit:cover;}
+.thumb-ph{display:flex;align-items:center;justify-content:center;font-size:28px;background:#0d0d0d;}
+.sbar{position:absolute;top:0;left:0;right:0;height:3px;background:var(--bg);}
+.sfill{height:100%;}
+.dur{position:absolute;bottom:6px;left:6px;font-size:9px;font-weight:600;background:rgba(0,0,0,.8);color:#fff;padding:2px 5px;border-radius:4px;}
+.fmt-tag{position:absolute;top:6px;left:6px;font-size:8px;font-weight:700;background:rgba(249,115,22,.85);color:#000;padding:2px 6px;border-radius:4px;}
+.apv-badge{position:absolute;top:6px;right:6px;background:var(--accent);color:#000;font-size:9px;font-weight:700;padding:2px 6px;border-radius:8px;}
+.clip-label-tag{position:absolute;bottom:6px;right:6px;font-size:8px;background:rgba(0,0,0,.75);color:#aaa;padding:2px 5px;border-radius:4px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cbody{padding:9px 10px;}
+.ctitle{font-size:11px;font-weight:500;color:#ccc;line-height:1.4;margin-bottom:6px;}
+.cmeta{display:flex;align-items:center;gap:5px;margin-bottom:5px;}
+.cscore{font-size:9px;padding:2px 6px;border-radius:5px;border:1px solid var(--border);color:var(--muted);}
+.tr-box{background:#0d0d0d;border-radius:5px;padding:6px 8px;margin-bottom:5px;display:none;border:1px solid var(--border);}
+.tr-box p{font-size:10px;color:var(--muted);line-height:1.5;}
+.tr-toggle{width:100%;font-size:10px;color:var(--dim);border:1px solid #1a1a1a;background:none;border-radius:5px;padding:3px;cursor:pointer;margin-bottom:5px;font-family:inherit;}
+.tr-toggle:hover{color:var(--muted);}
+.cactions{display:flex;gap:3px;}
+.ca{flex:1;font-size:9px;font-weight:500;padding:5px 2px;border-radius:5px;border:1px solid var(--border);background:none;cursor:pointer;color:var(--muted);text-align:center;font-family:inherit;transition:all .12s;}
+.ca:hover{border-color:var(--border2);color:var(--text);}
+.ca.aon{color:var(--gold);border-color:var(--accent);background:#1a0f00;}
+.ca.ron{color:#f87171;border-color:#3f1f1f;background:#1a0808;}
+
+/* Progress */
+.prog-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;gap:16px;}
+.prog-steps{display:flex;flex-direction:column;gap:6px;width:280px;}
+.ps{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim);padding:6px 10px;border-radius:7px;}
+.ps.active{color:var(--gold);background:#1a0f00;}
+.ps.done{color:#4ade80;}
+.ps-icon{width:18px;height:18px;border-radius:50%;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;}
+.ps.active .ps-icon{border-color:var(--accent);background:var(--accent);color:#000;}
+.ps.done .ps-icon{border-color:#166534;background:#052e16;color:#4ade80;}
+.prog-bar{width:280px;height:4px;background:var(--border);border-radius:4px;overflow:hidden;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--gold));border-radius:4px;transition:width .5s ease;}
+.prog-pct{font-size:11px;color:var(--dim);font-family:monospace;}
+
+/* Empty */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px;gap:10px;color:var(--dim);text-align:center;padding:20px;}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;font-size:12px;font-weight:600;padding:10px 16px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:999;max-width:300px;}
+.toast.show{opacity:1;}
+.toast.info{background:var(--accent);color:#000;}
+.toast.success{background:#065f46;color:#6ee7b7;}
+.toast.error{background:#b91c1c;color:#fecaca;}
+
+/* Modals */
+.mb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:100;align-items:center;justify-content:center;padding:16px;}
+.mb.show{display:flex;}
+.modal{background:#111;border:1px solid var(--border);border-radius:14px;padding:20px;width:100%;max-width:400px;max-height:90vh;overflow-y:auto;}
+.modal h3{font-size:15px;font-weight:700;margin-bottom:14px;color:#fff;}
+.modal label{font-size:11px;color:var(--dim);display:block;margin-bottom:3px;margin-top:10px;}
+.modal input,.modal select,.modal textarea{width:100%;background:#0d0d0d;border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:12px;padding:8px 10px;outline:none;font-family:inherit;}
+.modal input:focus,.modal select:focus,.modal textarea:focus{border-color:var(--accent);}
+.modal textarea{resize:vertical;min-height:75px;line-height:1.5;}
+.mbtns{display:flex;gap:8px;margin-top:14px;}
+.mbtns button{flex:1;font-size:12px;font-weight:600;padding:9px;border-radius:7px;cursor:pointer;font-family:inherit;}
+.bpr{background:var(--accent);border:none;color:#000;font-weight:800;}
+.bpr:hover{opacity:.85;}
+.bcn{background:none;border:1px solid var(--border);color:var(--muted);}
+.bcn:hover{border-color:var(--border2);color:var(--text);}
+.bdg{background:#b91c1c;border:none;color:#fff;flex:0.6!important;}
+.vmod{display:none;position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:200;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;}
+.vmod.show{display:flex;}
+.vwrap{width:100%;max-width:440px;}
+.vwrap video{width:100%;border-radius:12px;max-height:78vh;}
+.vclose{background:none;border:1px solid var(--border2);color:var(--muted);font-size:12px;padding:6px 16px;border-radius:7px;cursor:pointer;font-family:inherit;}
+.dz{border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;color:var(--dim);font-size:11px;cursor:pointer;margin-top:8px;transition:all .15s;}
+.dz:hover,.dz.drag{border-color:var(--accent);color:var(--accent);}
+.share-link{background:#0d0d0d;border:1px solid var(--border);border-radius:7px;padding:10px;font-size:11px;color:var(--gold);word-break:break-all;margin-top:10px;font-family:monospace;display:none;}
+.copts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+.copt{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;}
+.copt.sel{border-color:#fff;}
+.fopts{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;}
+.fopt{font-size:10px;padding:4px 9px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-family:inherit;}
+.fopt.sel{border-color:var(--accent);color:var(--gold);background:#1a0f00;}
+.logo-upload-area{border:2px dashed var(--border);border-radius:8px;padding:12px;text-align:center;color:var(--dim);font-size:11px;cursor:pointer;margin-top:6px;transition:all .15s;}
+.logo-upload-area:hover{border-color:var(--accent);color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">
+    <img src="/static/cf_watermark.png" alt="ClipForge">
+    <div class="logo-text">Clip<span>Forge</span></div>
+    <span class="vbadge">v5.4</span>
+  </div>
+  <div class="nav">
+    <a href="/" class="on">Clips</a>
+    <a href="/debug">Debug</a>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="sidebar-inner">
+      <div class="sidebar-label">Clients</div>
+      <div id="clientList"></div>
+      <button class="add-client" onclick="openM('addClient')">+ Add client</button>
+    </div>
+    <div class="sidebar-stats">
+      <div class="stat-row"><span>Total</span><span class="stat-val" id="s1">0</span></div>
+      <div class="stat-row"><span>Approved</span><span class="stat-val" id="s2">0</span></div>
+      <div class="stat-row"><span>Pending</span><span class="stat-val" id="s3">0</span></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="submit-area">
+      <div class="url-row">
+        <div class="url-wrap">
+          <input type="text" id="urlIn" placeholder="Paste YouTube URL..." onkeydown="if(event.key==='Enter')process()"/>
+        </div>
+        <button class="btn" onclick="openM('fileUp')">Upload</button>
+        <button class="btn-opts" id="optsToggle" onclick="toggleOpts()">⚙ Options</button>
+        <button class="btn-pkg" id="demoBtn" onclick="doDemo()" style="background:#0a1a0a;border-color:#16a34a;color:#4ade80;">🎬 Demo</button>
+        <button class="btn-pkg" id="pkgBtn" onclick="doPackage()">📦 Package — 3 clips</button>
+        <button class="btn-process" id="processBtn" onclick="process()">Process</button>
+      </div>
+    </div>
+
+    <div class="opts-panel" id="optsPanel">
+      <div class="opts-inner">
+        <div class="og">
+          <div class="ol">Format</div>
+          <select class="osel" id="fmtSel">
+            <option value="9:16">9:16 Vertical</option>
+            <option value="16:9">16:9 Horizontal</option>
+            <option value="1:1">1:1 Square</option>
+          </select>
+        </div>
+        <div class="og">
+          <div class="ol">Highlight color</div>
+          <div class="color-row" id="hlClrDots">
+            <div class="cdot sel" style="background:#ffff00" data-c="yellow" onclick="selHL(this)"></div>
+            <div class="cdot" style="background:#00ffff" data-c="cyan" onclick="selHL(this)"></div>
+            <div class="cdot" style="background:#00ff88" data-c="green" onclick="selHL(this)"></div>
+            <div class="cdot" style="background:#ff8800" data-c="orange" onclick="selHL(this)"></div>
+            <div class="cdot" style="background:#ff4444" data-c="red" onclick="selHL(this)"></div>
+            <div class="cdot" style="background:#ff44ff" data-c="magenta" onclick="selHL(this)"></div>
+          </div>
+        </div>
+        <div class="og">
+          <div class="ol">Outline color</div>
+          <div class="color-row" id="outClrDots">
+            <div class="cdot sel" style="background:#000;border-color:#555" data-c="black" onclick="selOC(this)"></div>
+            <div class="cdot" style="background:#fff" data-c="white" onclick="selOC(this)"></div>
+          </div>
+        </div>
+        <div class="og">
+          <div class="ol">Font</div>
+          <select class="osel" id="fontSel">
+            <option value="Bebas Neue">Bebas Neue</option>
+            <option value="Impact">Impact</option>
+            <option value="Arial">Arial</option>
+          </select>
+        </div>
+        <div class="og" style="min-width:140px;">
+          <div class="ol">Font size</div>
+          <div class="size-row">
+            <input type="range" id="fsSlider" min="40" max="140" value="40" oninput="updFS()">
+            <span class="size-val" id="fsVal">Auto</span>
+          </div>
+        </div>
+        <div class="og">
+          <div class="ol">Position</div>
+          <div class="preset-row" id="posBtns">
+            <button class="pbtn sel" data-pos="bottom" onclick="selPos(this)">Bottom</button>
+            <button class="pbtn" data-pos="top" onclick="selPos(this)">Top</button>
+          </div>
+        </div>
+        <div class="og">
+          <div class="ol">Watermark</div>
+          <div class="preset-row" id="wmPosBtns">
+            <button class="pbtn" data-wp="top_left" onclick="selWmPos(this)">UL</button>
+            <button class="pbtn sel" data-wp="top_right" onclick="selWmPos(this)">UR</button>
+            <button class="pbtn" data-wp="bottom_left" onclick="selWmPos(this)">LL</button>
+            <button class="pbtn" data-wp="bottom_right" onclick="selWmPos(this)">LR</button>
+          </div>
+        </div>
+        <div class="og">
+          <div class="ol">Process limit</div>
+          <select class="osel" id="limitSel">
+            <option value="0">Full video</option>
+            <option value="5">First 5 min</option>
+            <option value="10">First 10 min</option>
+            <option value="20">First 20 min</option>
+          </select>
+        </div>
+        <div class="og">
+          <div class="ol">Options</div>
+          <label class="trow"><input type="checkbox" id="capOn" checked> Captions</label>
+          <label class="trow" style="margin-top:4px;"><input type="checkbox" id="wmOn" checked> Watermark</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="err-bar" id="errBar"></div>
+
+    <div class="filter-bar">
+      <button class="filt on" onclick="setF('all',this)">All</button>
+      <button class="filt" onclick="setF('pending',this)">Pending</button>
+      <button class="filt" onclick="setF('approved',this)">Approved</button>
+      <button class="filt" onclick="setF('rejected',this)">Rejected</button>
+      <button class="btn-aap" onclick="approveAll()">✓ Auto-approve</button>
+      <button class="btn-bulk" onclick="bulkApprove()">✓ Approve selected</button>
+      <button class="btn-shr" onclick="openEmailDraft()" style="border-color:#065f46;background:#022c22;color:#4ade80;">📧 Draft email</button>
+      <button class="btn-shr" onclick="openShare()">⬆ Share</button>
+      <span class="cc" id="cc">0 clips</span>
+    </div>
+
+    <div class="clips-area">
+      <div id="content"><div class="empty"><div style="font-size:40px;margin-bottom:8px;">🎬</div><div>Select a client and paste a YouTube URL</div></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="vmod" id="vmod">
+  <div class="vwrap"><video id="vplayer" controls playsinline></video></div>
+  <button class="vclose" onclick="closeV()">✕ Close</button>
+</div>
+
+<!-- Add client -->
+<div class="mb" id="addClientModal">
+  <div class="modal">
+    <h3>Add prospect</h3>
+    <label>Name</label><input type="text" id="nc_n" placeholder="Their name or channel name"/>
+    <label>Their email (for outreach)</label><input type="email" id="nc_e" placeholder="their@email.com"/>
+    <label>Channel URL (Facebook, Instagram, TikTok, YouTube)</label><input type="text" id="nc_c" placeholder="https://www.instagram.com/username"/>
+    <label>Monthly rate (USD) — leave 0 for prospects</label><input type="number" id="nc_r" placeholder="0"/>
+    <label>Monthly video limit</label><input type="number" id="nc_l" value="20"/>
+    <div class="mbtns">
+      <button class="bcn" onclick="closeM('addClient')">Cancel</button>
+      <button class="bpr" onclick="saveNewClient()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit client -->
+<div class="mb" id="editClientModal">
+  <div class="modal">
+    <h3 id="ec_t">Edit client</h3>
+    <label>Name</label><input type="text" id="ec_n"/>
+    <label>Their email (for outreach)</label><input type="email" id="ec_e" placeholder="their@email.com"/>
+    <label>Channel URL</label><input type="text" id="ec_c" placeholder="https://www.instagram.com/username"/>
+    <label>Monthly rate (USD)</label><input type="number" id="ec_r"/>
+    <label>Monthly video limit</label><input type="number" id="ec_l"/>
+    <label>Auto-approve threshold (0 = off)</label><input type="number" id="ec_a" min="0" max="100"/>
+    <label>Default format</label>
+    <select id="ec_f"><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option></select>
+    <div class="mbtns">
+      <button class="bdg" onclick="delClient()">Delete</button>
+      <button class="bcn" onclick="closeM('editClient')">Cancel</button>
+      <button class="bpr" onclick="saveEditClient()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Email draft -->
+<div class="mb" id="emailDraftModal">
+  <div class="modal" style="max-width:560px;">
+    <h3>📧 Email Draft</h3>
+    <label>To</label><input type="text" id="draft_to" readonly style="color:var(--gold)"/>
+    <label>Subject</label><input type="text" id="draft_subject" readonly/>
+    <label>Body</label><textarea id="draft_body" rows="16" readonly style="font-size:11px;line-height:1.6;"></textarea>
+    <div class="mbtns">
+      <button class="bcn" onclick="closeM('emailDraft')">Close</button>
+      <button class="bpr" onclick="copyDraft()">📋 Copy email body</button>
+    </div>
+  </div>
+</div>
+
+<!-- File upload -->
+<div class="mb" id="fileUpModal">
+  <div class="modal">
+    <h3>Upload video</h3>
+    <div class="dz" id="dz" onclick="document.getElementById('fi').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="fileDrop(event)">
+      <span id="dzLabel">Click or drag & drop video file</span>
+    </div>
+    <input type="file" id="fi" accept="video/*" style="display:none" onchange="fileSet(this.files[0])">
+    <div class="mbtns">
+      <button class="bcn" onclick="closeM('fileUp')">Cancel</button>
+      <button class="bpr" id="upBtn" onclick="doUpload()">Upload & Process</button>
+    </div>
+  </div>
+</div>
+
+<!-- Share -->
+<div class="mb" id="shareModal">
+  <div class="modal">
+    <h3>Share preview link</h3>
+    <label>Title</label><input type="text" id="shareTitle" placeholder="Check out these clips!"/>
+    <label>Message</label><textarea id="shareMsg" rows="3" placeholder="We made these clips from your video!"></textarea>
+    <div class="mbtns">
+      <button class="bcn" onclick="closeM('share')">Cancel</button>
+      <button class="bpr" onclick="genLink()">Generate link</button>
+    </div>
+    <div class="share-link" id="shareLink"></div>
+    <button class="bpr" id="copyBtn" style="display:none;width:100%;margin-top:8px;" onclick="copyLink()">📋 Copy link</button>
+  </div>
+</div>
+
+<script>
+const VER='5.4';
+const STEPS=[{k:'download',l:'Download'},{k:'transcrib',l:'Transcribe'},{k:'detect',l:'Detect moments'},{k:'cut',l:'Cut clips'},{k:'caption',l:'Burn captions'},{k:'watermark',l:'Apply watermark'}];
+function stepIdx(t){const s=t.toLowerCase();if(s.includes('download'))return 0;if(s.includes('transcrib'))return 1;if(s.includes('detect')||s.includes('moment'))return 2;if(s.includes('cut')||s.includes('package'))return 3;if(s.includes('caption'))return 4;if(s.includes('watermark'))return 5;return -1;}
+let clients=[],clips=[],curClient=null,curFilter='all';
+let activeJob=null,pollT=null,editClientId=null;
+let uploadFile=null,clientLogoFile=null,optsOpen=false;
+let capHL='yellow',capOC='black',capFont='Bebas Neue',capFS=0,capPos='bottom';
+let wmPos='top_right';
+let ecColor='white',ecFont='Bebas Neue';
+let selected=new Set();
+
+async function api(m,p,b){
+  const o={method:m,headers:{}};
+  if(b instanceof FormData)o.body=b;
+  else if(b){o.headers['Content-Type']='application/json';o.body=JSON.stringify(b);}
+  const r=await fetch(p,o);
+  if(!r.ok)throw new Error(await r.text());
+  return r.json();
+}
+
+async function loadClients(){
+  clients=await api('GET','/api/clients/');
+  renderClients();
+  if(clients.length&&!curClient){curClient=clients[0];loadClips();}
+}
+
+function renderClients(){
+  const pal=[['#1a0f00','#f97316'],['#001a0f','#4ade80'],['#1a0000','#f87171'],['#00101a','#60a5fa'],['#10001a','#d8b4fe']];
+  document.getElementById('clientList').innerHTML=clients.map((c,i)=>{
+    const [bg,fg]=pal[i%pal.length];
+    const ini=c.name.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    const on=curClient&&c.id===curClient.id?'active':'';
+    const lim=c.video_limit||0,used=c.videos_used||0,pct=lim>0?Math.min(100,(used/lim)*100):0;
+    const hasChannel=c.channel_url?'🔗 ':'';
+    return`<div class="ci ${on}" onclick="selClient(${c.id})">
+      <div class="cavatar" style="background:${bg};color:${fg};">${ini}</div>
+      <div style="flex:1;min-width:0;"><div class="cname">${hasChannel}${c.name}</div>${lim>0?`<div class="cbar"><div class="cfill" style="width:${pct}%"></div></div>`:''}</div>
+      <span class="cedit" onclick="event.stopPropagation();openEditClient(${c.id})">✎</span>
+    </div>`;
+  }).join('');
+}
+
+function selClient(id){curClient=clients.find(c=>c.id===id);renderClients();loadClips();}
+
+async function loadClips(){
+  if(!curClient)return;
+  clips=await api('GET',`/api/clips/?client_id=${curClient.id}`);
+  renderClips();updateStats();
+}
+
+function renderClips(){
+  const f=clips.filter(c=>curFilter==='all'||c.status===curFilter);
+  document.getElementById('cc').textContent=f.length+' clips';
+  if(!f.length){document.getElementById('content').innerHTML='<div class="empty"><div style="font-size:40px;margin-bottom:8px;">🎬</div><div>No clips yet</div></div>';return;}
+  const sc=s=>s>=85?'#f97316':s>=65?'#fbbf24':'#f87171';
+  const asp=fmt=>fmt==='16:9'?'aspect-ratio:16/9':fmt==='1:1'?'aspect-ratio:1/1':'aspect-ratio:9/16';
+  document.getElementById('content').innerHTML=`<div class="grid">${f.map(c=>`
+    <div class="card ${c.status}" id="cd${c.id}">
+      <div class="thumb" style="${asp(c.format||'9:16')}">
+        <div class="sbar"><div class="sfill" style="width:${c.score}%;background:${sc(c.score)}"></div></div>
+        ${c.thumbnail_path?`<img src="/api/clips/${c.id}/thumbnail?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`:`<div class="thumb-ph" style="width:100%;height:100%;">🎬</div>`}
+        ${c.format&&c.format!=='9:16'?`<div class="fmt-tag">${c.format}</div>`:''}
+        <div class="dur">${dur(c.duration_sec)}</div>
+        ${c.status==='approved'?'<div class="apv-badge">✓</div>':''}
+        ${c.title&&c.title.includes('—')?`<div class="clip-label-tag">${c.title.split('—').pop().trim()}</div>`:''}
+      </div>
+      <div class="cbody">
+        <div class="ctitle">${c.title||'Untitled clip'}</div>
+        <div class="cmeta"><span class="cscore">${c.score}% score</span></div>
+        ${c.transcript?`<div class="tr-box" id="tr${c.id}"><p>${c.transcript.substring(0,200)}${c.transcript.length>200?'...':''}</p></div><button class="tr-toggle" onclick="togTr(${c.id},this)">Show transcript</button>`:''}
+        <div class="cactions">
+          <button class="ca ${c.status==='approved'?'aon':''}" onclick="togApp(${c.id})">${c.status==='approved'?'✓':'Approve'}</button>
+          <button class="ca" onclick="playClip(${c.id})">▶</button>
+          <button class="ca" onclick="window.location.href='/editor/'+${c.id}">✎</button>
+          <button class="ca" onclick="dlClip(${c.id})" title="Download">↓</button>
+          <button class="ca ${c.status==='rejected'?'ron':''}" onclick="togRej(${c.id})">✕</button>
+        </div>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+function togTr(id,btn){const el=document.getElementById('tr'+id);const s=el.style.display==='block';el.style.display=s?'none':'block';btn.textContent=s?'Show transcript':'Hide transcript';}
+function playClip(id){document.getElementById('vplayer').src=`/api/clips/${id}/file`;document.getElementById('vplayer').load();document.getElementById('vplayer').play();document.getElementById('vmod').classList.add('show');}
+function closeV(){document.getElementById('vplayer').pause();document.getElementById('vplayer').src='';document.getElementById('vmod').classList.remove('show');}
+function dlClip(id){const a=document.createElement('a');a.href=`/api/clips/${id}/file`;a.download=`clip_${id}.mp4`;a.click();}
+async function togApp(id){const c=clips.find(x=>x.id===id);const ns=c.status==='approved'?'pending':'approved';await api('PATCH',`/api/clips/${id}`,{status:ns});c.status=ns;renderClips();updateStats();}
+async function togRej(id){const c=clips.find(x=>x.id===id);const ns=c.status==='rejected'?'pending':'rejected';await api('PATCH',`/api/clips/${id}`,{status:ns});c.status=ns;renderClips();updateStats();}
+async function approveAll(){if(!curClient)return;const t=curClient.auto_approve_threshold||80;const r=await api('POST',`/api/clips/approve-all?client_id=${curClient.id}&min_score=${t}`);await loadClips();toast('Approved '+r.approved+' clips','success');}
+async function bulkApprove(){if(!selected.size){toast('Select clips first','error');return;}for(const id of selected){await api('PATCH',`/api/clips/${id}`,{status:'approved'});const c=clips.find(x=>x.id===id);if(c)c.status='approved';}selected.clear();renderClips();updateStats();toast('Approved','success');}
+
+function buildFD(previewMode=false,pkgMode=false){
+  if(!curClient)throw new Error('Select a client first');
+  const fd=new FormData();
+  fd.append('client_id',curClient.id);
+  fd.append('format',document.getElementById('fmtSel').value);
+  fd.append('burn_captions',document.getElementById('capOn').checked?'1':'0');
+  fd.append('zoom_punch','0');
+  fd.append('preview_mode',previewMode?'1':'0');
+  fd.append('watermark_mode','0');
+  fd.append('package_mode',pkgMode?'1':'0');
+  fd.append('apply_watermark',document.getElementById('wmOn').checked?'1':'0');
+  fd.append('wm_size','large');
+  fd.append('wm_position',wmPos);
+  fd.append('caption_font',capFont);
+  fd.append('caption_color','white');
+  fd.append('highlight_color',capHL);
+  fd.append('outline_color',capOC);
+  fd.append('caption_preset','karaoke');
+  fd.append('font_size',capFS);
+  fd.append('caption_position',capPos);
+  fd.append('process_limit',document.getElementById('limitSel').value);
+  return fd;
+}
+
+async function process(){
+  const url=document.getElementById('urlIn').value.trim();
+  if(!url){document.getElementById('urlIn').focus();return;}
+  if(!curClient){toast('Select a client first','error');return;}
+  hideErr();setBusy(true);
+  try{const fd=buildFD();fd.append('url',url);const r=await api('POST','/api/jobs/submit-url',fd);activeJob=r.job_id;document.getElementById('urlIn').value='';showProg(5,'Starting...');poll();}
+  catch(e){setBusy(false);showErr(e.message);}
+}
+
+async function doPackage(){
+  const url=document.getElementById('urlIn').value.trim();
+  if(!url){document.getElementById('urlIn').focus();return;}
+  if(!curClient){toast('Select a client first','error');return;}
+  hideErr();setBusy(true);document.getElementById('pkgBtn').textContent='Packaging...';
+  try{const fd=buildFD(false,true);fd.append('url',url);const r=await api('POST','/api/jobs/submit-url',fd);activeJob=r.job_id;document.getElementById('urlIn').value='';showProg(5,'Creating package — top 3 moments, 16:9...');poll();}
+  catch(e){setBusy(false);showErr(e.message);}
+}
+
+
+async function doUpload(){
+  if(!uploadFile){toast('Select a file','error');return;}
+  if(!curClient){toast('Select a client','error');return;}
+  const btn=document.getElementById('upBtn');btn.disabled=true;btn.textContent='Uploading...';
+  try{const fd=buildFD();fd.append('file',uploadFile);const r=await api('POST','/api/jobs/submit-file',fd);activeJob=r.job_id;uploadFile=null;closeM('fileUp');showProg(5,'Starting...');poll();}
+  catch(e){toast('Upload failed: '+e.message,'error');}
+  finally{btn.disabled=false;btn.textContent='Upload & Process';}
+}
+
+function setBusy(on){
+  ['processBtn','pkgBtn','demoBtn'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.disabled=on;
+  });
+  document.getElementById('processBtn').textContent=on?'Processing...':'Process';
+  if(!on){
+    document.getElementById('pkgBtn').textContent='📦 Package — 3 clips';
+    document.getElementById('demoBtn').textContent='🎬 Demo';
+  }
+}
+
+async function doDemo(){
+  if(!curClient){toast('Select a prospect first','error');return;}
+  // If client has a channel URL and no manual URL pasted, use channel URL
+  const manualUrl=document.getElementById('urlIn').value.trim();
+  if(!manualUrl&&curClient.channel_url){
+    doChannelDemo();return;
+  }
+  if(!manualUrl){document.getElementById('urlIn').focus();return;}
+  hideErr();setBusy(true);
+  document.getElementById('demoBtn').textContent='Creating demo...';
+  try{
+    const fd=new FormData();
+    fd.append('client_id',curClient.id);
+    fd.append('url',manualUrl);
+    const r=await api('POST','/api/jobs/demo',fd);
+    activeJob=r.job_id;
+    document.getElementById('urlIn').value='';
+    showProg(5,'Creating demo — 3 x 20s clips for pitching...');
+    poll();
+  }catch(e){setBusy(false);showErr(e.message);}
+}
+
+function poll(){
+  if(pollT)clearInterval(pollT);
+  pollT=setInterval(async()=>{
+    try{
+      const j=await api('GET',`/api/jobs/${activeJob}`);
+      showProg(j.progress||0,j.current_step||'Processing...');
+      if(j.status==='done'){clearInterval(pollT);pollT=null;setBusy(false);toast('Clips ready!','success');loadClips();loadClients();}
+      else if(j.status==='error'){clearInterval(pollT);pollT=null;setBusy(false);showErr(j.error||'Something went wrong.');}
+    }catch(e){clearInterval(pollT);pollT=null;}
+  },2000);
+}
+
+
+function showProg(pct,step){
+  const idx=stepIdx(step);
+  document.getElementById('content').innerHTML=`<div class="prog-zone"><div class="prog-steps">${STEPS.map((s,i)=>{const done=i<idx||(pct>=100&&i<=idx);const active=i===idx&&pct<100;return`<div class="ps ${done?'done':active?'active':''}"><div class="ps-icon">${done?'✓':active?'→':''}</div><span>${s.l}</span></div>`;}).join('')}</div><div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div><div class="prog-pct">${pct}% — ${step}</div></div>`;
+}
+
+function toggleOpts(){optsOpen=!optsOpen;document.getElementById('optsPanel').classList.toggle('open',optsOpen);document.getElementById('optsToggle').classList.toggle('on',optsOpen);}
+function selHL(el){capHL=el.dataset.c;document.querySelectorAll('#hlClrDots .cdot').forEach(d=>d.classList.remove('sel'));el.classList.add('sel');}
+function selOC(el){capOC=el.dataset.c;document.querySelectorAll('#outClrDots .cdot').forEach(d=>d.classList.remove('sel'));el.classList.add('sel');}
+function selPos(el){capPos=el.dataset.pos;document.querySelectorAll('#posBtns .pbtn').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');}
+function selWmPos(el){wmPos=el.dataset.wp;document.querySelectorAll('#wmPosBtns .pbtn').forEach(b=>b.classList.remove('sel'));el.classList.add('sel');}
+function updFS(){const v=parseInt(document.getElementById('fsSlider').value);capFS=v===40?0:v;document.getElementById('fsVal').textContent=v===40?'Auto':v+'pt';}
+function setF(f,btn){curFilter=f;document.querySelectorAll('.filt').forEach(b=>b.classList.remove('on'));btn.classList.add('on');renderClips();}
+function openShare(){if(!curClient){toast('Select a client first','error');return;}document.getElementById('shareLink').style.display='none';document.getElementById('copyBtn').style.display='none';openM('share');}
+async function genLink(){const approved=clips.filter(c=>c.status==='approved');if(!approved.length){toast('Approve at least one clip first','error');return;}const r=await api('POST','/api/previews/',{client_id:curClient.id,title:document.getElementById('shareTitle').value||'Check out these clips!',message:document.getElementById('shareMsg').value});const link=`${window.location.origin}/preview/${r.token}`;document.getElementById('shareLink').textContent=link;document.getElementById('shareLink').style.display='block';document.getElementById('copyBtn').style.display='block';}
+function copyLink(){navigator.clipboard.writeText(document.getElementById('shareLink').textContent).then(()=>toast('Copied!','success'));}
+
+async function saveNewClient(){
+  const name=document.getElementById('nc_n').value.trim();if(!name)return;
+  await api('POST','/api/clients/',{
+    name,
+    prospect_email:document.getElementById('nc_e').value||null,
+    channel_url:document.getElementById('nc_c').value||null,
+    monthly_rate:parseFloat(document.getElementById('nc_r').value)||0,
+    video_limit:parseInt(document.getElementById('nc_l').value)||20
+  });
+  closeM('addClient');
+  ['nc_n','nc_e','nc_c','nc_r'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('nc_l').value='20';
+  await loadClients();toast('Prospect added!','success');
+}
+
+function openEditClient(id){
+  editClientId=id;const c=clients.find(x=>x.id===id);
+  document.getElementById('ec_t').textContent=c.name+' — Edit';
+  document.getElementById('ec_n').value=c.name||'';
+  document.getElementById('ec_e').value=c.prospect_email||c.email||'';
+  document.getElementById('ec_c').value=c.channel_url||'';
+  document.getElementById('ec_r').value=c.monthly_rate||'';
+  document.getElementById('ec_l').value=c.video_limit||20;
+  document.getElementById('ec_a').value=c.auto_approve_threshold||0;
+  document.getElementById('ec_f').value=c.default_format||'9:16';
+  clientLogoFile=null;
+  openM('editClient');
+}
+async function saveEditClient(){
+  if(!editClientId)return;
+  try{
+    await api('PATCH',`/api/clients/${editClientId}`,{
+      name:document.getElementById('ec_n').value.trim(),
+      prospect_email:document.getElementById('ec_e').value||null,
+      channel_url:document.getElementById('ec_c').value||null,
+      monthly_rate:parseFloat(document.getElementById('ec_r').value)||0,
+      video_limit:parseInt(document.getElementById('ec_l').value)||0,
+      auto_approve_threshold:parseInt(document.getElementById('ec_a').value)||0,
+      default_format:document.getElementById('ec_f').value
+    });
+    closeM('editClient');await loadClients();
+    if(curClient&&curClient.id===editClientId)curClient=clients.find(c=>c.id===editClientId);
+    toast('Updated!','success');
+  }catch(e){toast('Failed: '+e.message,'error');}
+}
+async function delClient(){
+  if(!editClientId)return;
+  const c=clients.find(x=>x.id===editClientId);
+  if(!confirm(`Delete ${c.name}? This cannot be undone.`))return;
+  await api('DELETE',`/api/clients/${editClientId}`);
+  closeM('editClient');
+  if(curClient&&curClient.id===editClientId){curClient=null;clips=[];renderClips();updateStats();}
+  await loadClients();
+  toast('Deleted','info');
+}
+
+async function openEmailDraft(){
+  if(!curClient){toast('Select a prospect first','error');return;}
+  try{
+    const d=await api('GET',`/api/clients/${curClient.id}/email-draft`);
+    document.getElementById('draft_to').value=d.to||'(no email set — edit client to add)';
+    document.getElementById('draft_subject').value=d.subject;
+    document.getElementById('draft_body').value=d.body;
+    openM('emailDraft');
+  }catch(e){toast('Failed: '+e.message,'error');}
+}
+
+function copyDraft(){
+  const body=document.getElementById('draft_body').value;
+  navigator.clipboard.writeText(body).then(()=>toast('Email body copied!','success'));
+}
+
+async function doChannelDemo(){
+  if(!curClient){toast('Select a prospect first','error');return;}
+  const c=curClient;
+  if(!c.channel_url){
+    toast('No channel URL — click ✎ to edit this prospect first','error');
+    return;
+  }
+  hideErr();setBusy(true);
+  document.getElementById('demoBtn').textContent='Creating demo...';
+  try{
+    const fd=new FormData();fd.append('client_id',c.id);
+    const r=await api('POST','/api/jobs/channel-demo',fd);
+    activeJob=r.job_id;
+    showProg(5,`Pulling video from ${c.name} channel...`);
+    poll();
+  }catch(e){setBusy(false);showErr(e.message);}
+}
+
+function fileSet(f){if(!f)return;uploadFile=f;document.getElementById('dzLabel').textContent=f.name;}
+function fileDrop(e){e.preventDefault();document.getElementById('dz').classList.remove('drag');fileSet(e.dataTransfer.files[0]);}
+function dur(s){if(!s)return'0:00';return`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;}
+function updateStats(){document.getElementById('s1').textContent=clips.length;document.getElementById('s2').textContent=clips.filter(c=>c.status==='approved').length;document.getElementById('s3').textContent=clips.filter(c=>c.status==='pending').length;}
+function toast(msg,type='info'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast ${type} show`;setTimeout(()=>t.className='toast',3000);}
+function showErr(msg){const b=document.getElementById('errBar');b.textContent='⚠ '+msg;b.style.display='block';}
+function hideErr(){document.getElementById('errBar').style.display='none';}
+function openM(n){document.getElementById(n+'Modal').classList.add('show');}
+function closeM(n){document.getElementById(n+'Modal').classList.remove('show');}
+document.querySelectorAll('.mb').forEach(bg=>bg.addEventListener('click',e=>{if(e.target===bg)bg.classList.remove('show');}));
+document.getElementById('fontSel').addEventListener('change',function(){capFont=this.value;});
+loadClients();
+</script>
+</body>
+</html>
