@@ -1,14 +1,17 @@
 FROM python:3.11-slim
 
-# Install system dependencies including ffmpeg and yt-dlp
+# Install system dependencies including ffmpeg and nodejs for yt-dlp
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp
+# Install yt-dlp latest version
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+    && chmod a+rx /usr/local/bin/yt-dlp \
+    && yt-dlp --version
 
 WORKDIR /app
 
