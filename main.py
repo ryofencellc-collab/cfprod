@@ -16,6 +16,7 @@ VERSION = "5.5"
 WORKER_PASSWORD = os.environ.get("WORKER_PASSWORD", "6969")
 ADMIN_PASSWORD  = os.environ.get("ADMIN_PASSWORD",  "3757")
 
+# Simple cookie-based auth
 def check_auth(request: Request, require_admin: bool = False):
     token = request.cookies.get("cf_token", "")
     if require_admin:
@@ -46,14 +47,15 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def login(request: Request):
     body = await request.json()
     pw = body.get("password", "")
-    is_https = request.url.scheme == "https"
+    # Always use secure on Railway — it always runs behind HTTPS
+    is_prod = os.environ.get("RAILWAY_ENVIRONMENT") is not None
     if pw == ADMIN_PASSWORD:
         resp = JSONResponse({"redirect": "/admin"})
-        resp.set_cookie("cf_token", f"admin_{ADMIN_PASSWORD}", max_age=86400*30, httponly=True, secure=is_https, samesite="lax")
+        resp.set_cookie("cf_token", f"admin_{ADMIN_PASSWORD}", max_age=86400*30, httponly=False, secure=is_prod, samesite="lax")
         return resp
     elif pw == WORKER_PASSWORD:
         resp = JSONResponse({"redirect": "/worker"})
-        resp.set_cookie("cf_token", f"worker_{WORKER_PASSWORD}", max_age=86400*30, httponly=True, secure=is_https, samesite="lax")
+        resp.set_cookie("cf_token", f"worker_{WORKER_PASSWORD}", max_age=86400*30, httponly=False, secure=is_prod, samesite="lax")
         return resp
     return JSONResponse({"error": "Invalid password"}, status_code=401)
 
