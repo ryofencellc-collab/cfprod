@@ -96,8 +96,6 @@ def step1_download(url: str, job_id: int) -> str:
         "--merge-output-format", "mp4",
         "--output", out_path,
         "--no-playlist",
-        "--cookies-from-browser", "chrome",
-        "--remote-components", "ejs:github",
         url
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
