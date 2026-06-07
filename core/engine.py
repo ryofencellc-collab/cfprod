@@ -90,14 +90,26 @@ def step1_download(url: str, job_id: int) -> str:
     out_dir = UPLOADS_DIR / str(job_id)
     out_dir.mkdir(exist_ok=True)
     out_path = str(out_dir / "source.%(ext)s")
+
+    # Write cookies from environment variable if available
+    cookies_path = None
+    cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
+    if cookies_content:
+        cookies_path = str(out_dir / "cookies.txt")
+        with open(cookies_path, "w") as f:
+            f.write(cookies_content)
+
     cmd = [
         "yt-dlp",
         "--format", "bestvideo[height<=1080]+bestaudio/best",
         "--merge-output-format", "mp4",
         "--output", out_path,
         "--no-playlist",
-        url
     ]
+    if cookies_path:
+        cmd += ["--cookies", cookies_path]
+    cmd.append(url)
+
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         err = result.stderr.strip()
