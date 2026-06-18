@@ -106,6 +106,13 @@ def step1_download(url: str, job_id: int) -> str:
         "--output", out_path,
         "--no-playlist",
     ]
+
+    # Use proxy if configured
+    proxy_url = os.environ.get("PROXY_URL", "")
+    if proxy_url:
+        cmd += ["--proxy", proxy_url]
+        log(job_id, f"Using proxy: {proxy_url.split('@')[-1]}")
+
     if cookies_path:
         cmd += ["--cookies", cookies_path]
     cmd.append(url)
