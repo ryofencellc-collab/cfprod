@@ -2,142 +2,195 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ClipForge Debug</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge v6.0 — Debug</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#f0f0f0;padding:20px;}
-.nav{margin-bottom:16px;}.nav a{font-size:12px;color:#666;text-decoration:none;}.nav a:hover{color:#ccc;}
-.title{font-size:16px;font-weight:600;color:#a78bfa;margin-bottom:16px;}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:16px;}
-.metric{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px;}
-.ml{font-size:10px;color:#555;margin-bottom:4px;}.mv{font-size:22px;font-weight:700;color:#a78bfa;}
-.section{background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;margin-bottom:14px;overflow:hidden;}
-.sh{padding:10px 14px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between;}
-.st{font-size:12px;font-weight:600;color:#ccc;}
-.btn{font-size:11px;background:none;border:1px solid #2a2a2a;color:#666;padding:4px 12px;border-radius:6px;cursor:pointer;font-family:inherit;}
-.btn:hover{border-color:#444;color:#ccc;}
-.btn-p{border-color:#4c1d95;color:#a78bfa;}.btn-p:hover{background:#1e1a2e;}
-.btn-r{border-color:#5a1f1f;color:#f87171;}.btn-r:hover{background:#1f0a0a;}
-.dr{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-bottom:1px solid #1a1a1a;font-size:12px;}
-.dr:last-child{border-bottom:none;}
-.di{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;margin-top:1px;}
-.ok{background:#14291a;color:#4ade80;}.err{background:#2a0f0f;color:#f87171;}.warn{background:#2a1f0a;color:#fb923c;}.load{background:#1e1a2e;color:#a78bfa;}
-.dn{font-weight:500;color:#ccc;width:160px;flex-shrink:0;}.dm{color:#888;flex:1;line-height:1.5;}
-.df{font-size:11px;color:#fb923c;margin-top:3px;}
-.jr{display:grid;grid-template-columns:45px 1fr 90px 100px 70px;gap:8px;padding:8px 14px;border-bottom:1px solid #1a1a1a;font-size:11px;align-items:center;}
-.jr:last-child{border-bottom:none;}.jr:hover{background:#1e1e1e;}
-.pill{font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600;display:inline-block;}
-.sd{background:#14291a;color:#4ade80;}.se{background:#2a0f0f;color:#f87171;}.sp{background:#1e1a2e;color:#a78bfa;}.sq{background:#1e1e1e;color:#888;}
-.pb{height:4px;background:#2a2a2a;border-radius:2px;overflow:hidden;}.pi{height:100%;background:#a78bfa;border-radius:2px;}
-.ebox{background:#1f0a0a;border-left:3px solid #f87171;padding:6px 10px;font-size:11px;color:#fca5a5;margin:4px 14px 0;border-radius:0 4px 4px 0;line-height:1.5;}
-.fbox{background:#0a1a0f;border-left:3px solid #4ade80;padding:6px 10px;font-size:11px;color:#86efac;margin:4px 14px 8px;border-radius:0 4px 4px 0;}
-.la{max-height:380px;overflow-y:auto;}
-.lr{display:flex;gap:10px;padding:4px 14px;font-size:11px;font-family:monospace;border-bottom:1px solid #161616;}
-.lt{color:#444;flex-shrink:0;width:65px;}.lj{color:#7c3aed;flex-shrink:0;width:45px;}.lm{flex:1;line-height:1.4;color:#bbb;}
-.lm.error{color:#f87171;}.lm.warn{color:#fb923c;}
-.rc{display:none;background:#1f0a0a;border:1px solid #5a1f1f;border-radius:8px;padding:12px 14px;margin:10px 14px;font-size:12px;color:#fca5a5;}
-.rc.show{display:block;}
-.ar{display:flex;align-items:center;gap:8px;font-size:11px;color:#555;}
-.ar input{accent-color:#7c3aed;}
+body{background:#0a0a0a;color:#e8e8e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:20px;}
+a{color:#f97316;text-decoration:none;}
+h2{font-size:18px;font-weight:700;margin-bottom:4px;}
+.sub{color:#666;font-size:12px;margin-bottom:20px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:24px;}
+.stat{background:#111;border:1px solid #1a1a1a;border-radius:10px;padding:14px;}
+.stat-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
+.stat-val{font-size:24px;font-weight:700;color:#f97316;}
+.section{background:#111;border:1px solid #1a1a1a;border-radius:10px;padding:16px;margin-bottom:16px;}
+.section h3{font-size:13px;font-weight:600;margin-bottom:12px;color:#fff;}
+.diag-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:12px;}
+.diag-row:last-child{border-bottom:none;}
+.diag-key{color:#888;}
+.ok{color:#4ade80;font-weight:600;}
+.warn{color:#fbbf24;font-weight:600;}
+.err{color:#f87171;font-weight:600;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{text-align:left;padding:6px 10px;background:#0d0d0d;color:#666;font-weight:600;border-bottom:1px solid #1a1a1a;}
+td{padding:6px 10px;border-bottom:1px solid #111;vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;}
+.badge-done{background:#052e16;color:#4ade80;}
+.badge-error{background:#1a0000;color:#f87171;}
+.badge-processing{background:#1a0f00;color:#fbbf24;}
+.badge-queued{background:#111;color:#888;}
+.log-row{font-size:11px;padding:4px 0;border-bottom:1px solid #0d0d0d;display:flex;gap:10px;}
+.log-time{color:#444;white-space:nowrap;font-family:monospace;}
+.log-job{color:#f97316;font-family:monospace;min-width:50px;}
+.log-msg{color:#aaa;flex:1;}
+.log-err{color:#f87171;}
+.log-warn{color:#fbbf24;}
+.btn{font-size:11px;padding:4px 12px;border-radius:6px;border:1px solid #222;background:#111;color:#888;cursor:pointer;font-family:inherit;}
+.btn:hover{border-color:#333;color:#e8e8e0;}
+.btn-danger{border-color:#5a1515;color:#f87171;}
+.btn-danger:hover{background:#1a0000;}
+.topbar{display:flex;align-items:center;gap:12px;margin-bottom:20px;}
+.logo{font-size:18px;font-weight:800;color:#fff;}.logo span{color:#f97316;}
+.vbadge{font-size:10px;font-weight:700;background:#1a0f00;color:#fbbf24;border:1px solid #f97316;padding:2px 7px;border-radius:10px;}
+.refresh-bar{display:flex;align-items:center;gap:8px;margin-bottom:16px;}
+.auto-label{font-size:11px;color:#666;display:flex;align-items:center;gap:4px;cursor:pointer;}
 </style>
 </head>
 <body>
-<div class="nav"><a href="/">← Back to ClipForge</a></div>
-<div class="title">ClipForge Debug Console</div>
-<div class="grid" id="metrics"></div>
+<div class="topbar">
+  <div class="logo">Clip<span>Forge</span></div>
+  <span class="vbadge">v6.0</span>
+  <a href="/" style="font-size:12px;color:#666;margin-left:auto;">← Back to app</a>
+</div>
 
-<div class="section">
-  <div class="sh"><span class="st">System diagnostics</span><button class="btn btn-p" onclick="runDiag()">Run diagnostics</button></div>
-  <div id="diagArea"><div class="dr"><div class="di load">•</div><div class="dn">Ready</div><div class="dm">Click "Run diagnostics" to check all systems</div></div></div>
+<h2>Debug Console</h2>
+<div class="sub">System status, diagnostics, and job logs</div>
+
+<div class="grid" id="statsGrid">
+  <div class="stat"><div class="stat-label">Clients</div><div class="stat-val" id="sc">—</div></div>
+  <div class="stat"><div class="stat-label">Total Jobs</div><div class="stat-val" id="sj">—</div></div>
+  <div class="stat"><div class="stat-label">Completed</div><div class="stat-val" id="sd">—</div></div>
+  <div class="stat"><div class="stat-label">Errors</div><div class="stat-val" id="se" style="color:#f87171">—</div></div>
+  <div class="stat"><div class="stat-label">Processing</div><div class="stat-val" id="sp" style="color:#fbbf24">—</div></div>
+  <div class="stat"><div class="stat-label">Total Clips</div><div class="stat-val" id="sclip">—</div></div>
+  <div class="stat"><div class="stat-label">Approved</div><div class="stat-val" id="sa" style="color:#4ade80">—</div></div>
 </div>
 
 <div class="section">
-  <div class="sh">
-    <span class="st">Recent jobs</span>
-    <div style="display:flex;gap:8px;align-items:center;">
-      <div class="ar"><input type="checkbox" id="ar" checked> Auto-refresh</div>
-      <button class="btn" onclick="loadAll()">Refresh</button>
-    </div>
+  <h3>System Diagnostics <button class="btn" style="float:right;" onclick="loadDiag()">Refresh</button></h3>
+  <div id="diagList"></div>
+</div>
+
+<div class="section">
+  <div class="refresh-bar">
+    <h3 style="margin:0;">Recent Jobs</h3>
+    <label class="auto-label"><input type="checkbox" id="autoRefresh" checked onchange="toggleAuto()"> Auto-refresh</label>
+    <button class="btn" onclick="loadAll()">Refresh</button>
   </div>
-  <div id="jobsArea"></div>
+  <table>
+    <thead><tr><th>ID</th><th>Status</th><th>Step</th><th>URL / File</th><th>Error</th></tr></thead>
+    <tbody id="jobsTable"></tbody>
+  </table>
 </div>
 
 <div class="section">
-  <div class="sh"><span class="st">Live logs</span><button class="btn" onclick="loadLogs()">Refresh</button></div>
-  <div class="la" id="logsArea"></div>
+  <h3>Live Logs <button class="btn" style="float:right;" onclick="loadLogs()">Refresh</button></h3>
+  <div id="logsList" style="max-height:400px;overflow-y:auto;"></div>
 </div>
 
 <div class="section">
-  <div class="sh"><span class="st">Danger zone</span><button class="btn btn-r" onclick="showReset()">Reset all data</button></div>
-  <div class="rc" id="rc">
-    This will delete all jobs, clips, logs and previews. Clients will be kept.
-    <div style="display:flex;gap:8px;margin-top:8px;">
-      <button class="btn btn-r" onclick="doReset()">Yes, reset everything</button>
-      <button class="btn" onclick="hideReset()">Cancel</button>
-    </div>
-  </div>
+  <h3 style="color:#f87171;">Danger Zone</h3>
+  <p style="font-size:12px;color:#666;margin-bottom:10px;">Reset all data — deletes all clients, jobs, and clips from the database.</p>
+  <button class="btn btn-danger" onclick="resetAll()">Reset all data</button>
 </div>
 
 <script>
-const FIXES={
-  "YouTube blocked":"Log into YouTube in Chrome, wait 5 mins, try again.",
-  "Sign in to confirm":"Log into YouTube in Chrome, then try again.",
-  "429":"YouTube rate limited you. Wait 10-15 minutes.",
-  "Private video":"This video is private. Use a public video.",
-  "not available":"Video unavailable or deleted.",
-  "No such file":"File not found. Try submitting again.",
-  "disk space":"Free up disk space on your Mac.",
-  "drawtext":"Caption burning failed — run diagnostics.",
-  "monthly limit":"Client has reached their video limit. Reset usage in client settings.",
-};
-const NAMES={ffmpeg:'FFmpeg',ffprobe:'FFprobe',yt_dlp:'yt-dlp downloader',faster_whisper:'Whisper transcription',caption_burning:'Caption burning',disk_space:'Disk space',storage_folders:'Storage folders'};
+let autoInterval = null;
 
-function getFix(e){if(!e)return null;for(const[k,v]of Object.entries(FIXES)){if(e.includes(k))return v;}return"Check the logs below for more details.";}
-function pill(s){const c={done:'sd',error:'se',processing:'sp',queued:'sq'}[s]||'sq';return`<span class="pill ${c}">${s}</span>`;}
-function ago(ts){const d=new Date(ts+'Z'),diff=Math.floor((Date.now()-d.getTime())/1000);if(diff<60)return`${diff}s ago`;if(diff<3600)return`${Math.floor(diff/60)}m ago`;return`${Math.floor(diff/3600)}h ago`;}
-
-async function loadSummary(){
-  const d=await fetch('/api/debug/summary').then(r=>r.json());
-  document.getElementById('metrics').innerHTML=[['Clients',d.clients],['Jobs',d.jobs_total],['Done',d.jobs_done],['Errors',d.jobs_error],['Processing',d.jobs_processing],['Clips',d.clips_total],['Approved',d.clips_approved]].map(([l,v])=>`<div class="metric"><div class="ml">${l}</div><div class="mv">${v}</div></div>`).join('');
+async function api(p) {
+  const r = await fetch(p);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
 }
 
-async function runDiag(){
-  document.getElementById('diagArea').innerHTML=`<div class="dr"><div class="di load">•</div><div class="dn">Running...</div><div class="dm">Checking all systems (10-15 seconds)</div></div>`;
-  const data=await fetch('/api/debug/diagnostics').then(r=>r.json());
-  document.getElementById('diagArea').innerHTML=Object.entries(data).map(([k,v])=>{
-    const icon=v.status==='ok'?'✓':v.status==='warning'?'!':'✕';
-    const cls=v.status==='ok'?'ok':v.status==='warning'?'warn':'err';
-    return`<div class="dr"><div class="di ${cls}">${icon}</div><div class="dn">${NAMES[k]||k}</div><div class="dm">${v.message}${v.fix?`<div class="df">Fix: ${v.fix}</div>`:''}</div></div>`;
-  }).join('');
+async function loadSummary() {
+  try {
+    const s = await api('/api/debug/summary');
+    document.getElementById('sc').textContent = s.clients ?? '—';
+    document.getElementById('sj').textContent = s.total_jobs ?? '—';
+    document.getElementById('sd').textContent = s.completed ?? '—';
+    document.getElementById('se').textContent = s.errors ?? '—';
+    document.getElementById('sp').textContent = s.processing ?? '—';
+    document.getElementById('sclip').textContent = s.clips ?? '—';
+    document.getElementById('sa').textContent = s.approved ?? '—';
+  } catch(e) {console.error('Summary failed:', e);}
 }
 
-async function loadJobs(){
-  const jobs=await fetch('/api/debug/jobs').then(r=>r.json());
-  document.getElementById('jobsArea').innerHTML=jobs.map(j=>`
-    <div class="jr"><span style="color:#555">#${j.id}</span><span style="color:#ccc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px">${(j.source_url||j.source_file||'file').substring(0,50)}</span>${pill(j.status)}<div><div class="pb"><div class="pi" style="width:${j.progress}%"></div></div><div style="font-size:9px;color:#555;margin-top:2px">${j.progress_step||''}</div></div><span style="color:#555;font-size:10px">${ago(j.created_at)}</span></div>
-    ${j.status==='error'&&j.error?`<div class="ebox">Error: ${j.error.substring(0,400)}</div><div class="fbox"><b>Fix:</b> ${getFix(j.error)}</div>`:''}
-  `).join('')||'<div style="padding:12px 14px;font-size:11px;color:#444">No jobs yet.</div>';
+async function loadDiag() {
+  try {
+    const d = await api('/api/debug/diagnostics');
+    const keys = {
+      ffmpeg: 'FFmpeg',
+      yt_dlp: 'yt-dlp',
+      faster_whisper: 'Whisper transcription',
+      groq_key: 'Groq API key',
+      openai_key: 'OpenAI API key',
+      anthropic_key: 'Anthropic API key',
+      proxy: 'Proxy',
+      disk_free_gb: 'Disk free (GB)',
+    };
+    document.getElementById('diagList').innerHTML = Object.entries(keys).map(([k, label]) => {
+      const v = d[k] ?? 'unknown';
+      const cls = (v === 'ok' || v === 'set' || (k === 'disk_free_gb' && parseFloat(v) > 1)) ? 'ok'
+                : (v === 'not set' || v === 'not found' || v === 'unknown') ? 'err' : 'warn';
+      return `<div class="diag-row"><span class="diag-key">${label}</span><span class="${cls}">${v}</span></div>`;
+    }).join('');
+  } catch(e) {document.getElementById('diagList').innerHTML = '<div class="diag-row"><span class="err">Failed to load diagnostics</span></div>';}
 }
 
-async function loadLogs(){
-  const logs=await fetch('/api/debug/logs?limit=100').then(r=>r.json());
-  document.getElementById('logsArea').innerHTML=logs.map(l=>{
-    const t=new Date(l.created_at+'Z').toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    return`<div class="lr"><span class="lt">${t}</span><span class="lj">job ${l.job_id||'-'}</span><span class="lm ${l.level}">${l.message}</span></div>`;
-  }).join('')||'<div style="padding:12px 14px;font-size:11px;color:#444">No logs yet.</div>';
+async function loadJobs() {
+  try {
+    const jobs = await api('/api/debug/jobs');
+    const badge = s => `<span class="badge badge-${s}">${s}</span>`;
+    document.getElementById('jobsTable').innerHTML = jobs.map(j => {
+      const src = j.source_url ? j.source_url.substring(0,50) : (j.source_file ? '📁 uploaded' : '—');
+      return `<tr>
+        <td style="color:#f97316;font-family:monospace;">#${j.id}</td>
+        <td>${badge(j.status)}</td>
+        <td style="color:#888;max-width:200px;">${j.current_step || '—'}</td>
+        <td style="color:#555;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${src}</td>
+        <td style="color:#f87171;max-width:200px;">${j.error ? j.error.substring(0,80) : ''}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="5" style="color:#444;text-align:center;padding:20px;">No jobs yet.</td></tr>';
+  } catch(e) {console.error('Jobs failed:', e);}
 }
 
-async function loadAll(){await Promise.all([loadSummary(),loadJobs(),loadLogs()]);}
-function showReset(){document.getElementById('rc').classList.add('show');}
-function hideReset(){document.getElementById('rc').classList.remove('show');}
-async function doReset(){
-  await fetch('/api/debug/reset',{method:'DELETE'});
-  hideReset();loadAll();alert('All data cleared.');
+async function loadLogs() {
+  try {
+    const logs = await api('/api/debug/logs?limit=100');
+    document.getElementById('logsList').innerHTML = logs.map(l => {
+      const t = new Date(l.created_at).toLocaleTimeString();
+      const cls = l.level === 'error' ? 'log-err' : l.level === 'warn' ? 'log-warn' : '';
+      return `<div class="log-row"><span class="log-time">${t}</span><span class="log-job">job ${l.job_id}</span><span class="log-msg ${cls}">${l.message}</span></div>`;
+    }).join('') || '<div style="color:#444;padding:10px;font-size:12px;">No logs yet.</div>';
+  } catch(e) {console.error('Logs failed:', e);}
+}
+
+async function loadAll() {
+  await Promise.all([loadSummary(), loadDiag(), loadJobs(), loadLogs()]);
+}
+
+async function resetAll() {
+  if (!confirm('Delete ALL data? This cannot be undone.')) return;
+  if (!confirm('Are you absolutely sure?')) return;
+  try {
+    const conn = await fetch('/api/debug/reset', {method:'POST'});
+    alert('Reset complete'); loadAll();
+  } catch(e) {alert('Reset failed — add /api/debug/reset endpoint if needed');}
+}
+
+function toggleAuto() {
+  if (document.getElementById('autoRefresh').checked) {
+    autoInterval = setInterval(loadAll, 4000);
+  } else {
+    clearInterval(autoInterval);
+  }
 }
 
 loadAll();
-runDiag();
-setInterval(()=>{if(document.getElementById('ar').checked)loadAll();},4000);
+autoInterval = setInterval(loadAll, 4000);
 </script>
 </body>
 </html>
