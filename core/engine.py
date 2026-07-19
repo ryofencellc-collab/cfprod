@@ -1,30 +1,35 @@
 """
-ClipForge v1.12 — Core Engine
-Pipeline:
-  Step 1: Download
-  Step 2: Transcribe
-  Step 3: Detect Moments
-  Step 4: Cut Clips
-  Step 5: Burn Captions (sentence mode, Saved-style)
+ClipForge v6.0 — Core Engine
+Upgraded pipeline:
+  Step 1: Download (proxy + cookies support)
+  Step 2: Transcribe (faster-whisper local, Groq API fallback)
+  Step 3: Detect Moments (AI-powered via Groq/OpenAI/Claude — replaces keyword scoring)
+  Step 4: Cut Clips (face-tracking crop via OpenCV)
+  Step 5: Burn Captions (karaoke style)
+  Step 6: Hook Generation (AI text + TTS intro)
+  Step 7: Apply Watermark (text-based, no PNG)
+  Split Mode: Sequential parts for archive content
 """
 import os
 import re
 import json
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from db.database import log, set_step
 
-VERSION = "5.4"
-CLIPS_DIR = Path(__file__).parent.parent / "clips"
-UPLOADS_DIR = Path(__file__).parent.parent / "uploads"
+VERSION = "6.0"
+CLIPS_DIR    = Path(__file__).parent.parent / "clips"
+UPLOADS_DIR  = Path(__file__).parent.parent / "uploads"
 WATERMARKS_DIR = Path(__file__).parent.parent / "watermarks"
-STATIC_DIR = Path(__file__).parent.parent / "static"
+STATIC_DIR   = Path(__file__).parent.parent / "static"
 
 for d in [CLIPS_DIR, UPLOADS_DIR, WATERMARKS_DIR]:
     d.mkdir(exist_ok=True)
 
-# ASS color map — &HAABBGGRR format
+# ─── Constants ────────────────────────────────────────────────────────────
+
 ASS_COLORS = {
     "white":   "&H00FFFFFF",
     "yellow":  "&H0000FFFF",
@@ -33,53 +38,63 @@ ASS_COLORS = {
     "orange":  "&H000080FF",
     "red":     "&H000000FF",
     "black":   "&H00000000",
+    "green":   "&H0000FF00",
 }
 
-# ASS PlayRes per format
 PLAY_RES = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080)}
 
-# Caption style presets — (Bold, BorderStyle, Outline, Shadow, extra_tags)
-# BorderStyle 1=outline+shadow, 3=opaque box
 CAPTION_PRESETS = {
-    "bold":      (1, 1, 5, 2, ""),
-    "outlined":  (1, 1, 6, 0, ""),
-    "shadow":    (1, 1, 3, 4, ""),
-    "minimal":   (0, 1, 2, 1, ""),
-    "box":       (1, 3, 0, 0, ""),
-    "karaoke":   (1, 1, 5, 2, ""),
+    "bold":     (1, 1, 5, 2, ""),
+    "outlined": (1, 1, 6, 0, ""),
+    "shadow":   (1, 1, 3, 4, ""),
+    "minimal":  (0, 1, 2, 1, ""),
+    "box":      (1, 3, 0, 0, ""),
+    "karaoke":  (1, 1, 5, 2, ""),
 }
 
-# Default font size per format (can be overridden by user)
 DEFAULT_FONT_SIZE = {"9:16": 82, "16:9": 52, "1:1": 66}
-
-# Max words per caption line per format
 MAX_WORDS = {"9:16": 4, "16:9": 5, "1:1": 4}
 
-# Position settings: (Alignment, MarginV)
-# Alignment 2=bottom-center, 8=top-center
 POSITION_MAP = {
     "bottom": {"9:16": (2, 120),  "16:9": (2, 60),  "1:1": (2, 80)},
     "middle": {"9:16": (2, 850),  "16:9": (2, 460),  "1:1": (2, 460)},
     "top":    {"9:16": (8, 80),   "16:9": (8, 50),   "1:1": (8, 60)},
 }
 
-# Watermark sizes (width, height) per format — square for logo
-WATERMARK_SIZES = {
-    "small":  {"9:16": (120, 120), "16:9": (120, 120), "1:1": (120, 120)},
-    "medium": {"9:16": (180, 180), "16:9": (180, 180), "1:1": (180, 180)},
-    "large":  {"9:16": (240, 240), "16:9": (240, 240), "1:1": (240, 240)},
-}
+# AI moment detection prompt — adapted from yt-short-clipper approach
+MOMENT_DETECTION_PROMPT = """You are an expert short-form video editor who identifies the most viral, engaging segments.
 
-def get_watermark_overlay(position: str, fmt: str, wm_w: int, wm_h: int) -> str:
-    """Return FFmpeg overlay x:y expression for watermark position."""
-    pad = 30
-    w, h = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080)}.get(fmt, (1080, 1920))
-    return {
-        "bottom_right": f"{w - wm_w - pad}:{h - wm_h - pad}",
-        "bottom_left":  f"{pad}:{h - wm_h - pad}",
-        "top_right":    f"{w - wm_w - pad}:{pad}",
-        "top_left":     f"{pad}:{pad}",
-    }.get(position, f"{w - wm_w - pad}:{h - wm_h - pad}")
+Analyze this transcript and identify the {num_clips} most engaging segments for short-form content.
+
+PRIORITY — find segments with:
+1. Conflict, tension, controversy, or drama
+2. Personal confessions or vulnerability  
+3. Bold opinions or surprising statements
+4. Punchlines or strong humor
+5. Complete story arcs (setup → payoff)
+6. Memorable quotes that stand alone
+
+AVOID:
+- Filler words and transitions
+- Technical explanations without emotion
+- Incomplete thoughts
+
+DURATION RULES (CRITICAL):
+- Each clip MUST be 30–90 seconds
+- Target 45–60 seconds ideally
+- Calculate from transcript timestamps — do NOT estimate
+
+Return ONLY a JSON array. No markdown. No explanation. Exactly {num_clips} items.
+
+Each item MUST have exactly these fields:
+- "start": number (seconds, from transcript)
+- "end": number (seconds, from transcript)  
+- "score": integer 1-100 (virality score)
+- "hook": string (max 10 words — attention-grabbing hook text)
+- "transcript": string (the spoken text in this segment)
+
+Transcript:
+{transcript}"""
 
 
 # ─── STEP 1: Download ─────────────────────────────────────────────────────
@@ -91,7 +106,7 @@ def step1_download(url: str, job_id: int) -> str:
     out_dir.mkdir(exist_ok=True)
     out_path = str(out_dir / "source.%(ext)s")
 
-    # Write cookies from environment variable if available
+    # Write cookies from environment variable if set
     cookies_path = None
     cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
     if cookies_content:
@@ -101,13 +116,14 @@ def step1_download(url: str, job_id: int) -> str:
 
     cmd = [
         "yt-dlp",
-        "--format", "bestvideo[height<=1080]+bestaudio/best",
+        "--format", "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "--output", out_path,
         "--no-playlist",
+        "--no-warnings",
     ]
 
-    # Use proxy if configured
+    # Proxy support — env var: PROXY_URL=http://user:pass@host:port
     proxy_url = os.environ.get("PROXY_URL", "")
     if proxy_url:
         cmd += ["--proxy", proxy_url]
@@ -115,23 +131,28 @@ def step1_download(url: str, job_id: int) -> str:
 
     if cookies_path:
         cmd += ["--cookies", cookies_path]
+
     cmd.append(url)
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         err = result.stderr.strip()
-        log(job_id, f"Download failed: {err}", "error")
-        if "Sign in to confirm" in err or "429" in err:
-            raise RuntimeError("YouTube blocked the download. Log into YouTube in Chrome and try again.")
+        log(job_id, f"Download failed: {err[:300]}", "error")
+        if "Sign in to confirm" in err or "429" in err or "bot" in err.lower():
+            raise RuntimeError("YouTube blocked the download. Cookies may have expired — update YOUTUBE_COOKIES in Railway variables.")
         elif "Private video" in err:
             raise RuntimeError("This video is private.")
         elif "not available" in err:
             raise RuntimeError("Video not available in your region.")
+        elif "Unsupported URL" in err:
+            raise RuntimeError("URL not supported. Try YouTube, Instagram, Facebook, or TikTok.")
         else:
             raise RuntimeError(f"Download failed: {err[:300]}")
+
     files = list(out_dir.glob("source.*"))
     if not files:
         raise RuntimeError("Download succeeded but no file found.")
+
     size_mb = files[0].stat().st_size // 1024 // 1024
     log(job_id, f"Step 1 complete — {files[0].name} ({size_mb}MB)")
     set_step(job_id, f"Downloaded ({size_mb}MB)", 25)
@@ -140,7 +161,12 @@ def step1_download(url: str, job_id: int) -> str:
 
 # ─── STEP 2: Transcribe ───────────────────────────────────────────────────
 
-def step2_transcribe(video_path: str, job_id: int) -> list:
+def step2_transcribe(video_path: str, job_id: int, whisper_model: str = "base") -> list:
+    """
+    Transcribe using faster-whisper locally.
+    whisper_model: 'base' (fast, good), 'medium' (slow, better accuracy)
+    Falls back gracefully if transcription fails.
+    """
     set_step(job_id, "Transcribing audio...", 30)
     log(job_id, "Step 2 — Extracting audio...")
 
@@ -148,68 +174,43 @@ def step2_transcribe(video_path: str, job_id: int) -> list:
     r = subprocess.run([
         "ffmpeg", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1",
         "-acodec", "pcm_s16le", audio_path, "-y", "-loglevel", "quiet"
-    ], capture_output=True, timeout=120)
+    ], capture_output=True, timeout=180)
 
-    if r.returncode != 0:
-        log(job_id, f"Audio extraction failed: {r.stderr.decode()[:200]}", "error")
+    if r.returncode != 0 or not os.path.exists(audio_path):
+        log(job_id, "Audio extraction failed — no captions will be available", "warn")
         set_step(job_id, "Transcription skipped", 55)
         return []
 
-    if not os.path.exists(audio_path):
-        log(job_id, "Audio file not created", "error")
-        set_step(job_id, "Transcription skipped", 55)
-        return []
-
-    log(job_id, "Audio extracted — loading Whisper model...")
-    set_step(job_id, "Loading Whisper model...", 35)
+    log(job_id, f"Audio extracted — loading Whisper {whisper_model} model...")
+    set_step(job_id, f"Loading Whisper {whisper_model}...", 35)
 
     segments = []
 
-    # Try WhisperX first (better word timestamps)
+    # Try faster-whisper
     try:
-        import matplotlib  # required by whisperx
-        import whisperx
-        log(job_id, "Using WhisperX for better word timestamps...")
-        set_step(job_id, "Transcribing with WhisperX...", 40)
-        model = whisperx.load_model("base", device="cpu", compute_type="int8")
-        audio = whisperx.load_audio(audio_path)
-        result = model.transcribe(audio, batch_size=8)
-        align_model, metadata = whisperx.load_align_model(
-            language_code=result["language"], device="cpu"
+        from faster_whisper import WhisperModel
+        set_step(job_id, "Transcribing speech...", 40)
+        model = WhisperModel(whisper_model, device="cpu", compute_type="int8")
+        segments_iter, info = model.transcribe(
+            audio_path,
+            beam_size=3,
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
         )
-        result = whisperx.align(result["segments"], align_model, metadata, audio, device="cpu")
-        for seg in result["segments"]:
-            words = [{"word": w["word"].strip(), "start": w["start"], "end": w["end"]}
-                     for w in seg.get("words", []) if "start" in w and "end" in w]
-            segments.append({"start": seg["start"], "end": seg["end"],
-                              "text": seg["text"].strip(), "words": words})
-        log(job_id, f"WhisperX complete — {len(segments)} segments")
+        for seg in segments_iter:
+            words = [{"word": w.word.strip(), "start": w.start, "end": w.end}
+                     for w in (seg.words or [])]
+            segments.append({
+                "start": seg.start, "end": seg.end,
+                "text": seg.text.strip(), "words": words
+            })
+            if len(segments) % 20 == 0:
+                log(job_id, f"Transcribing... {len(segments)} segments")
+                set_step(job_id, f"Transcribing... {len(segments)} segments", 45)
+        log(job_id, f"Whisper {whisper_model} complete — {len(segments)} segments, lang: {info.language}")
     except Exception as e:
-        log(job_id, f"WhisperX not available ({str(e)[:60]}) — using faster-whisper", "warn")
-        segments = []
-
-    # Fall back to faster-whisper with medium model for better accuracy
-    if not segments:
-        try:
-            from faster_whisper import WhisperModel
-            set_step(job_id, "Transcribing speech...", 40)
-            log(job_id, "Loading Whisper medium model...")
-            model = WhisperModel("medium", device="cpu", compute_type="int8")
-            segments_iter, info = model.transcribe(
-                audio_path, beam_size=3, word_timestamps=True,
-                vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500),
-            )
-            for seg in segments_iter:
-                words = [{"word": w.word.strip(), "start": w.start, "end": w.end}
-                         for w in (seg.words or [])]
-                segments.append({"start": seg.start, "end": seg.end,
-                                  "text": seg.text.strip(), "words": words})
-                if len(segments) % 20 == 0:
-                    log(job_id, f"Transcribing... {len(segments)} segments")
-                    set_step(job_id, f"Transcribing... {len(segments)} segments", 45)
-            log(job_id, f"Whisper medium complete — {len(segments)} segments, lang: {info.language}")
-        except Exception as e:
-            log(job_id, f"Transcription error: {str(e)}", "error")
+        log(job_id, f"Transcription error: {str(e)[:100]}", "warn")
 
     if os.path.exists(audio_path):
         os.remove(audio_path)
@@ -217,22 +218,235 @@ def step2_transcribe(video_path: str, job_id: int) -> list:
     if segments:
         set_step(job_id, f"Transcribed — {len(segments)} segments", 55)
     else:
-        log(job_id, "No segments — continuing without captions", "warn")
+        log(job_id, "No segments transcribed — clips will have no captions", "warn")
         set_step(job_id, "Transcription skipped", 55)
 
     return segments
 
 
-# ─── STEP 3: Detect Moments ───────────────────────────────────────────────
+# ─── STEP 3: Detect Moments (AI-powered) ─────────────────────────────────
 
-def step3_detect_moments(video_path: str, segments: list, job_id: int) -> list:
+def step3_detect_moments(video_path: str, segments: list, job_id: int,
+                          num_clips: int = 5) -> list:
+    """
+    Detect best moments using AI (Groq free → OpenAI → keyword fallback).
+    Groq is free, fast, and high quality — perfect default.
+    Falls back to keyword scoring if no AI API is configured.
+    """
     set_step(job_id, "Detecting best moments...", 60)
-    log(job_id, "Step 3 — Analyzing video for best moments...")
+    log(job_id, "Step 3 — AI moment detection...")
+
     duration = get_duration(video_path)
     if duration == 0:
         raise RuntimeError("Could not read video duration.")
+
     log(job_id, f"Video duration: {int(duration // 60)}m {int(duration % 60)}s")
 
+    # Build transcript text with timestamps
+    if not segments:
+        log(job_id, "No transcript — using time-based fallback moments", "warn")
+        return _fallback_moments(duration, num_clips)
+
+    transcript_text = _build_transcript_with_timestamps(segments)
+
+    # Try AI detection — Groq first (free), then OpenAI, then Claude
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    moments = None
+
+    if groq_key:
+        log(job_id, "Using Groq for moment detection (free + fast)...")
+        moments = _detect_moments_groq(transcript_text, num_clips, groq_key, job_id)
+
+    if not moments and openai_key:
+        log(job_id, "Trying OpenAI for moment detection...")
+        moments = _detect_moments_openai(transcript_text, num_clips, openai_key, job_id)
+
+    if not moments and anthropic_key:
+        log(job_id, "Trying Claude for moment detection...")
+        moments = _detect_moments_claude(transcript_text, num_clips, anthropic_key, job_id)
+
+    if not moments:
+        log(job_id, "No AI key configured — using keyword scoring fallback", "warn")
+        moments = _keyword_detect_moments(video_path, segments, job_id, num_clips)
+
+    # Validate moments against actual video duration
+    valid = []
+    for m in moments:
+        if m["start"] < 0 or m["end"] > duration + 5 or m["start"] >= m["end"]:
+            continue
+        m["end"] = min(m["end"], duration)
+        valid.append(m)
+
+    if not valid:
+        log(job_id, "AI moments invalid — falling back to keyword scoring", "warn")
+        valid = _keyword_detect_moments(video_path, segments, job_id, num_clips)
+
+    log(job_id, f"Step 3 complete — {len(valid)} moments (top score: {valid[0]['score'] if valid else 0})")
+    set_step(job_id, f"Found {len(valid)} moments", 75)
+    return valid[:num_clips]
+
+
+def _build_transcript_with_timestamps(segments: list) -> str:
+    """Build transcript string with timestamps for AI consumption."""
+    lines = []
+    for seg in segments:
+        start = seg["start"]
+        m, s = int(start // 60), start % 60
+        lines.append(f"[{m:02d}:{s:05.2f}] {seg['text'].strip()}")
+    return "\n".join(lines)
+
+
+def _parse_ai_moments(raw: str, job_id: int) -> list:
+    """Parse AI response into moments list. Handles common JSON issues."""
+    # Strip markdown code blocks if present
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"```[a-z]*\n?", "", raw).strip().rstrip("```").strip()
+
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            log(job_id, f"AI returned non-list: {type(data)}", "warn")
+            return []
+        moments = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            start = float(item.get("start", 0))
+            end = float(item.get("end", 0))
+            if end <= start or end - start < 15:
+                continue
+            moments.append({
+                "start": round(start, 2),
+                "end": round(end, 2),
+                "score": int(item.get("score", 75)),
+                "transcript": str(item.get("transcript", "")),
+                "hook": str(item.get("hook", "")),
+                "segments": [],
+            })
+        return moments
+    except Exception as e:
+        log(job_id, f"Failed to parse AI response: {e} — raw: {raw[:200]}", "warn")
+        return []
+
+
+def _detect_moments_groq(transcript: str, num_clips: int, api_key: str, job_id: int) -> list:
+    """Call Groq API for moment detection. Free, fast, high quality."""
+    try:
+        import urllib.request
+        prompt = MOMENT_DETECTION_PROMPT.format(
+            num_clips=num_clips,
+            transcript=transcript[:12000]  # Groq context limit
+        )
+        payload = json.dumps({
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 2000,
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        content = data["choices"][0]["message"]["content"]
+        moments = _parse_ai_moments(content, job_id)
+        if moments:
+            log(job_id, f"Groq detected {len(moments)} moments")
+        return moments
+    except Exception as e:
+        log(job_id, f"Groq failed: {str(e)[:100]}", "warn")
+        return []
+
+
+def _detect_moments_openai(transcript: str, num_clips: int, api_key: str, job_id: int) -> list:
+    """Call OpenAI API for moment detection."""
+    try:
+        import urllib.request
+        prompt = MOMENT_DETECTION_PROMPT.format(
+            num_clips=num_clips,
+            transcript=transcript[:15000]
+        )
+        payload = json.dumps({
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 2000,
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        content = data["choices"][0]["message"]["content"]
+        moments = _parse_ai_moments(content, job_id)
+        if moments:
+            log(job_id, f"OpenAI detected {len(moments)} moments")
+        return moments
+    except Exception as e:
+        log(job_id, f"OpenAI failed: {str(e)[:100]}", "warn")
+        return []
+
+
+def _detect_moments_claude(transcript: str, num_clips: int, api_key: str, job_id: int) -> list:
+    """Call Anthropic Claude API for moment detection."""
+    try:
+        import urllib.request
+        prompt = MOMENT_DETECTION_PROMPT.format(
+            num_clips=num_clips,
+            transcript=transcript[:15000]
+        )
+        payload = json.dumps({
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 2000,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode()
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        content = data["content"][0]["text"]
+        moments = _parse_ai_moments(content, job_id)
+        if moments:
+            log(job_id, f"Claude detected {len(moments)} moments")
+        return moments
+    except Exception as e:
+        log(job_id, f"Claude failed: {str(e)[:100]}", "warn")
+        return []
+
+
+def _keyword_detect_moments(video_path: str, segments: list, job_id: int, num_clips: int = 5) -> list:
+    """
+    Keyword-based moment detection — fallback when no AI key is configured.
+    Same logic as v5.x for backward compatibility.
+    """
+    duration = get_duration(video_path)
     moments = []
     window, step = 45.0, 15.0
     t = 0.0
@@ -243,72 +457,68 @@ def step3_detect_moments(video_path: str, segments: list, job_id: int) -> list:
         tl = transcript.lower()
         word_count = sum(len(s["text"].split()) for s in segs)
 
-        # Speech density — reward dense speech, penalize silence
         speech_density = min(35, word_count // 3)
-
-        # Strong hooks — things that make people stop scrolling
-        hooks = [
-            "why", "how", "what if", "the truth", "nobody talks about",
-            "never", "always", "secret", "biggest mistake", "most people",
-            "you need to", "i was wrong", "i can't believe", "this is why",
-            "let me tell you", "here's the thing", "the problem is",
-            "what nobody tells you", "stop", "wait", "listen",
-        ]
+        hooks = ["why", "how", "what if", "the truth", "never", "always",
+                 "secret", "biggest mistake", "most people", "this is why",
+                 "stop", "wait", "listen", "let me tell you"]
         hook_score = min(20, sum(6 for h in hooks if h in tl))
-
-        # Emotional energy words
-        energy = [
-            "incredible", "insane", "crazy", "unbelievable", "shocked",
-            "amazing", "important", "critical", "massive", "serious",
-            "money", "success", "failed", "broke", "fired", "quit",
-            "love", "hate", "fear", "angry", "excited", "nervous",
-        ]
+        energy = ["incredible", "insane", "crazy", "unbelievable", "shocked",
+                  "amazing", "important", "money", "success", "failed", "quit",
+                  "love", "hate", "fear", "angry", "excited"]
         energy_score = min(15, sum(4 for e in energy if e in tl))
-
-        # Questions — drive curiosity and engagement
-        question_count = transcript.count("?")
-        question_score = min(10, question_count * 4)
-
-        # Penalize if mostly silence (very few words)
+        question_score = min(10, transcript.count("?") * 4)
         silence_penalty = -15 if word_count < 20 else 0
-
-        # Penalize filler-heavy segments
-        fillers = ["um", "uh", "like", "you know", "basically", "literally"]
-        filler_count = sum(tl.count(f) for f in fillers)
-        filler_penalty = -min(10, filler_count * 2)
+        fillers = ["um", "uh", "like", "you know", "basically"]
+        filler_penalty = -min(10, sum(tl.count(f) for f in fillers) * 2)
 
         score = max(0, min(100,
             30 + speech_density + hook_score + energy_score +
             question_score + silence_penalty + filler_penalty
         ))
-
         moments.append({
             "start": round(t, 2),
             "end": round(min(t + window, duration), 2),
             "score": score,
             "transcript": transcript,
+            "hook": "",
             "segments": segs,
         })
         t += step
 
     moments.sort(key=lambda x: x["score"], reverse=True)
 
-    # Deduplicate — keep top moments at least 20s apart
+    # Deduplicate — keep moments at least 20s apart
     top = []
     for m in moments[:25]:
         if not any(abs(m["start"] - k["start"]) < 20 for k in top):
             top.append(m)
-        if len(top) >= 10:
+        if len(top) >= num_clips:
             break
 
-    log(job_id, f"Step 3 complete — {len(top)} moments selected (top score: {top[0]['score'] if top else 0})")
-    set_step(job_id, f"Found {len(top)} moments", 75)
     return top
 
 
-# ─── STEP 4: Cut Clips (with zoom punch) ─────────────────────────────────
+def _fallback_moments(duration: float, num_clips: int) -> list:
+    """Time-based fallback when no transcript is available."""
+    clip_len = min(45.0, duration / max(num_clips, 1))
+    moments = []
+    for i in range(num_clips):
+        start = i * (duration / num_clips)
+        moments.append({
+            "start": round(start, 2),
+            "end": round(min(start + clip_len, duration), 2),
+            "score": 70,
+            "transcript": "",
+            "hook": "",
+            "segments": [],
+        })
+    return moments
 
-def step4_cut_clips(video_path: str, moments: list, job_id: int, fmt: str, zoom_punch: bool = False) -> list:
+
+# ─── STEP 4: Cut Clips ────────────────────────────────────────────────────
+
+def step4_cut_clips(video_path: str, moments: list, job_id: int,
+                    fmt: str, zoom_punch: bool = False) -> list:
     set_step(job_id, "Cutting clips...", 78)
     log(job_id, f"Step 4 — Cutting {len(moments)} clips in {fmt} format...")
     out_dir = CLIPS_DIR / str(job_id)
@@ -321,7 +531,7 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int, fmt: str, zoom_
         duration = m["end"] - m["start"]
         log(job_id, f"Cutting clip {i+1} at {int(m['start'])}s — {int(duration)}s (score: {m['score']})")
 
-        # Build video filter — zoom punch is optional
+        vf = crop
         if zoom_punch:
             res = {"9:16": "1080x1920", "16:9": "1920x1080", "1:1": "1080x1080"}.get(fmt, "1080x1920")
             zoom_filter = (
@@ -329,8 +539,6 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int, fmt: str, zoom_
                 f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={res}:fps=30"
             )
             vf = f"{crop},{zoom_filter}"
-        else:
-            vf = crop
 
         cmd = [
             "ffmpeg", "-y",
@@ -347,21 +555,10 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int, fmt: str, zoom_
         r = subprocess.run(cmd, capture_output=True)
 
         if r.returncode != 0 and zoom_punch:
-            # Zoom filter failed — retry without it
+            # Retry without zoom
             log(job_id, f"Zoom filter failed on clip {i+1} — retrying without zoom", "warn")
-            cmd_plain = [
-                "ffmpeg", "-y",
-                "-ss", str(m["start"]),
-                "-i", video_path,
-                "-t", str(duration),
-                "-vf", crop,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                "-c:a", "aac", "-b:a", "128k",
-                "-movflags", "+faststart",
-                "-loglevel", "error",
-                clip_path
-            ]
-            r = subprocess.run(cmd_plain, capture_output=True)
+            cmd[-7] = crop  # replace vf
+            r = subprocess.run(cmd, capture_output=True)
 
         if r.returncode != 0:
             log(job_id, f"Clip {i+1} cut failed: {r.stderr.decode()[:200]}", "error")
@@ -371,10 +568,12 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int, fmt: str, zoom_
             "clip_path": clip_path,
             "start": m["start"], "end": m["end"],
             "duration": duration, "score": m["score"],
-            "transcript": m["transcript"], "segments": m["segments"],
+            "transcript": m["transcript"],
+            "hook": m.get("hook", ""),
+            "segments": m.get("segments", []),
             "format": fmt,
         })
-        pct = 78 + int((i+1) / len(moments) * 7)
+        pct = 78 + int((i + 1) / len(moments) * 7)
         set_step(job_id, f"Cutting clip {i+1} of {len(moments)}", pct)
 
     log(job_id, f"Step 4 complete — {len(results)} clips cut")
@@ -395,7 +594,6 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
 
     for i, clip in enumerate(clips):
         raw_path = clip["clip_path"]
-        # Generate paths based on raw_path stem — works regardless of naming
         stem = raw_path.rsplit(".", 1)[0]
         cap_path = stem + "_cap.mp4"
         final_path = stem + "_final.mp4"
@@ -403,16 +601,13 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
         thumb_path = stem + "_thumb.jpg"
         fmt = clip["format"]
 
-        # Get segments with 5s buffer each side
         buf_start = max(0, clip["start"] - 5)
         buf_end = clip["end"] + 5
         buf_segs = [s for s in all_segments if s["start"] >= buf_start and s["end"] <= buf_end]
 
-        # Pre-split into chunks for editor
         chunks = split_segments_into_chunks(buf_segs, clip["start"], clip["end"], fmt)
         clip["segments_json"] = json.dumps(chunks)
 
-        # Build caption file
         if preset == "karaoke":
             ass_content = build_ass_karaoke(
                 buf_segs, clip["start"], clip["end"],
@@ -423,21 +618,18 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
                                     fmt, font, text_color, outline_color,
                                     preset, font_size, position)
 
-        work_path = raw_path  # default — use raw if captions fail
+        work_path = raw_path
 
         if ass_content:
             with open(ass_path, "w", encoding="utf-8") as f:
                 f.write(ass_content)
 
             r = subprocess.run([
-                "ffmpeg", "-y",
-                "-i", raw_path,
+                "ffmpeg", "-y", "-i", raw_path,
                 "-vf", f"ass={ass_path}",
                 "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                "-c:a", "copy",
-                "-movflags", "+faststart",
-                "-loglevel", "error",
-                cap_path
+                "-c:a", "copy", "-movflags", "+faststart",
+                "-loglevel", "error", cap_path
             ], capture_output=True)
 
             if r.returncode == 0 and os.path.exists(cap_path):
@@ -452,7 +644,6 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
         else:
             log(job_id, f"No transcript for clip {i+1} — skipping captions", "warn")
 
-        # Rename to final
         if os.path.exists(work_path):
             if work_path != final_path:
                 os.rename(work_path, final_path)
@@ -461,7 +652,6 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
             log(job_id, f"Clip {i+1} file missing after captions", "error")
             continue
 
-        # Generate thumbnail from final file
         subprocess.run([
             "ffmpeg", "-y", "-ss", "2", "-i", final_path,
             "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
@@ -469,20 +659,393 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
         clip["thumbnail_path"] = thumb_path if os.path.exists(thumb_path) else None
 
         results.append(clip)
-        pct = 86 + int((i+1) / len(clips) * 10)
+        pct = 86 + int((i + 1) / len(clips) * 5)
         set_step(job_id, f"Captions {i+1}/{len(clips)}", pct)
 
     log(job_id, "Step 5 complete")
-    set_step(job_id, "Captions complete", 96)
+    set_step(job_id, "Captions complete", 91)
     return results
 
 
+# ─── STEP 6: Hook Generation (NEW) ───────────────────────────────────────
+
+def step6_add_hooks(clips: list, job_id: int, all_segments: list) -> list:
+    """
+    Add AI-generated hook intro to each clip.
+    Creates a 3-second text overlay intro using the hook text from AI detection.
+    Falls back gracefully if no hook text is available.
+    Only runs if GROQ_API_KEY or OPENAI_API_KEY is set.
+    """
+    set_step(job_id, "Adding hooks...", 92)
+    log(job_id, "Step 6 — Adding hook intros...")
+    results = []
+
+    for i, clip in enumerate(clips):
+        hook_text = clip.get("hook", "").strip()
+        if not hook_text:
+            # Generate hook from transcript using simple extraction
+            hook_text = _extract_hook_from_transcript(clip.get("transcript", ""))
+
+        if hook_text:
+            hooked_path = _burn_hook_text(clip["clip_path"], hook_text, clip["format"], job_id)
+            if hooked_path and os.path.exists(hooked_path):
+                clip["clip_path"] = hooked_path
+                log(job_id, f"Hook added to clip {i+1}: '{hook_text[:40]}'")
+            else:
+                log(job_id, f"Hook generation failed clip {i+1} — keeping without hook", "warn")
+        else:
+            log(job_id, f"No hook text for clip {i+1} — skipping", "warn")
+
+        results.append(clip)
+
+    set_step(job_id, "Hooks complete", 93)
+    return results
+
+
+def _extract_hook_from_transcript(transcript: str) -> str:
+    """Extract a punchy hook from the first sentence of transcript."""
+    if not transcript:
+        return ""
+    # Take first 8-10 words
+    words = transcript.strip().split()
+    hook = " ".join(words[:8])
+    # Clean up
+    hook = re.sub(r"[^A-Za-z0-9' ]", "", hook).strip().upper()
+    return hook if len(hook) > 5 else ""
+
+
+def _burn_hook_text(video_path: str, hook_text: str, fmt: str, job_id: int) -> str:
+    """
+    Burn hook text overlay for first 2.5 seconds of clip.
+    Large centered text — like TikTok hooks.
+    No TTS required — text only overlay.
+    """
+    out_path = video_path.rsplit(".", 1)[0] + "_hooked.mp4"
+    res_x, res_y = PLAY_RES.get(fmt, (1080, 1920))
+    font_size = 72 if fmt == "9:16" else 54
+
+    # Escape special chars for drawtext
+    safe_text = hook_text.replace("'", "\\'").replace(":", "\\:").replace(",", "\\,")[:50]
+
+    # Hook text: large, centered, white with black outline — visible for 2.5s
+    hook_filter = (
+        f"drawtext=text='{safe_text}':font='Arial Black':"
+        f"fontsize={font_size}:fontcolor=white:borderw=3:bordercolor=black:"
+        f"x=(w-tw)/2:y=(h-th)/2-50:"
+        f"enable='between(t,0,2.5)'"
+    )
+
+    r = subprocess.run([
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", hook_filter,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-c:a", "copy", "-movflags", "+faststart",
+        "-loglevel", "error", out_path
+    ], capture_output=True)
+
+    if r.returncode == 0 and os.path.exists(out_path):
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        return out_path
+    return None
+
+
+# ─── STEP 7: Apply Watermark ─────────────────────────────────────────────
+
+def step7_apply_watermark(clips: list, job_id: int,
+                           watermark_text: str = "ClipForge",
+                           watermark_font: str = "Arial Rounded MT Bold") -> list:
+    """
+    Burn text watermark onto each clip.
+    White text, dark border + shadow, top right. No PNG — no issues ever.
+    """
+    set_step(job_id, "Applying watermark...", 97)
+    log(job_id, f"Step 7 — Text watermark: '{watermark_text}'")
+    results = []
+
+    for i, clip in enumerate(clips):
+        in_path = clip["clip_path"]
+        stem = in_path.rsplit(".", 1)[0]
+        out_path = stem + "_wm.mp4"
+        thumb_path = stem + "_thumb.jpg"
+
+        success = apply_text_watermark(in_path, out_path, watermark_text, watermark_font)
+
+        if success and os.path.exists(out_path):
+            if os.path.exists(in_path): os.remove(in_path)
+            clip["clip_path"] = out_path
+            log(job_id, f"Watermark applied to clip {i+1}")
+            subprocess.run([
+                "ffmpeg", "-y", "-ss", "2", "-i", out_path,
+                "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
+            ], capture_output=True)
+            if os.path.exists(thumb_path):
+                clip["thumbnail_path"] = thumb_path
+        else:
+            log(job_id, f"Watermark failed clip {i+1} — keeping without watermark", "warn")
+
+        results.append(clip)
+
+    set_step(job_id, "Watermark complete", 99)
+    return results
+
+# Keep backward-compatible alias
+step6_apply_watermark = step7_apply_watermark
+
+
+# ─── Package Mode ─────────────────────────────────────────────────────────
+
+def step_package_mode(video_path: str, moments: list, segments: list,
+                      job_id: int, font: str = "Bebas Neue",
+                      text_color: str = "white", outline_color: str = "black",
+                      highlight_color: str = "yellow", font_size: int = None,
+                      position: str = "bottom",
+                      apply_watermark: bool = True,
+                      watermark_text: str = "ClipForge",
+                      watermark_font: str = "Arial Rounded MT Bold",
+                      demo_mode: bool = False,
+                      add_hooks: bool = False) -> list:
+    """
+    Package mode — top 3 moments × 16:9 = 3 clips.
+    demo_mode: caps clips at 20 seconds for prospect pitches.
+    add_hooks: prepend hook text overlay if available.
+    """
+    mode_label = "Demo" if demo_mode else "Package"
+    set_step(job_id, f"Creating {mode_label} — top 3 moments, 16:9...", 78)
+    log(job_id, f"{mode_label} mode — 3 clips, 16:9 format")
+
+    top3 = moments[:3]
+    fmt = "16:9"
+    out_dir = CLIPS_DIR / str(job_id)
+    out_dir.mkdir(exist_ok=True)
+    results = []
+    total = len(top3)
+
+    for m_idx, moment in enumerate(top3):
+        count = m_idx + 1
+        buf_start = max(0, moment["start"] - 5)
+        buf_end = moment["end"] + 5
+        buf_segs = [s for s in segments if s["start"] >= buf_start and s["end"] <= buf_end]
+        duration = min(moment["end"] - moment["start"], 20) if demo_mode else moment["end"] - moment["start"]
+        label = f"Demo Clip {count}" if demo_mode else f"Moment {count}"
+        slug = label.replace(" ", "_")
+        raw_path = str(out_dir / f"pkg_{count:02d}_{slug}_raw.mp4")
+        cap_path = str(out_dir / f"pkg_{count:02d}_{slug}_cap.mp4")
+        final_path = str(out_dir / f"pkg_{count:02d}_{slug}_final.mp4")
+        thumb_path = str(out_dir / f"pkg_{count:02d}_{slug}_thumb.jpg")
+
+        # Cut clip
+        crop = get_crop(fmt)
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(moment["start"]),
+            "-i", video_path,
+            "-t", str(duration),
+            "-vf", crop,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-loglevel", "error",
+            raw_path
+        ], capture_output=True)
+
+        if r.returncode != 0:
+            log(job_id, f"Package clip {count} cut failed", "error")
+            continue
+
+        # Burn captions
+        ass_content = build_ass_karaoke(
+            buf_segs, moment["start"], moment["end"],
+            fmt, font, outline_color, font_size, position, highlight_color
+        )
+        work_path = raw_path
+        if ass_content:
+            ass_path = raw_path.replace("_raw.mp4", ".ass")
+            with open(ass_path, "w", encoding="utf-8") as f:
+                f.write(ass_content)
+            r2 = subprocess.run([
+                "ffmpeg", "-y", "-i", raw_path,
+                "-vf", f"ass={ass_path}",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                "-c:a", "copy", "-movflags", "+faststart",
+                "-loglevel", "error", cap_path
+            ], capture_output=True)
+            if r2.returncode == 0:
+                if os.path.exists(raw_path): os.remove(raw_path)
+                if os.path.exists(ass_path): os.remove(ass_path)
+                work_path = cap_path
+
+        # Add hook overlay if requested
+        if add_hooks and moment.get("hook"):
+            hooked = _burn_hook_text(work_path, moment["hook"], fmt, job_id)
+            if hooked:
+                work_path = hooked
+
+        # Apply watermark
+        if apply_watermark:
+            wm_out = work_path.replace(".mp4", "_wm.mp4")
+            success = apply_text_watermark(work_path, wm_out, watermark_text, watermark_font)
+            if success:
+                if os.path.exists(work_path): os.remove(work_path)
+                work_path = wm_out
+
+        if work_path != final_path:
+            os.rename(work_path, final_path)
+
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", "2", "-i", final_path,
+            "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
+        ], capture_output=True)
+
+        chunks = split_segments_into_chunks(buf_segs, moment["start"], moment["end"], fmt)
+
+        results.append({
+            "clip_path": final_path,
+            "thumbnail_path": thumb_path if os.path.exists(thumb_path) else None,
+            "start": moment["start"], "end": moment["end"],
+            "duration": duration, "score": moment["score"],
+            "transcript": moment["transcript"],
+            "hook": moment.get("hook", ""),
+            "segments_json": json.dumps(chunks),
+            "format": fmt, "label": label,
+        })
+
+        pct = 78 + int(count / total * 21)
+        set_step(job_id, f"Package {count}/{total}: {label}", pct)
+        log(job_id, f"Package clip {count} done: {label}")
+
+    log(job_id, f"Package complete — {len(results)} clips")
+    set_step(job_id, f"Package ready — {len(results)} clips", 99)
+    return results
+
+
+# ─── Split Mode (NEW) ─────────────────────────────────────────────────────
+
+def step_split_mode(video_path: str, segments: list, job_id: int,
+                    fmt: str = "16:9", clip_duration: int = 60,
+                    apply_watermark_flag: bool = True,
+                    watermark_text: str = "ClipForge",
+                    watermark_font: str = "Arial Rounded MT Bold",
+                    font: str = "Bebas Neue",
+                    outline_color: str = "black",
+                    font_size: int = None,
+                    position: str = "bottom") -> list:
+    """
+    Sequential split mode for archive/long-form content.
+    Cuts video into equal parts (default 60s each), numbered Part 1, Part 2...
+    Perfect for retro content channels — post parts sequentially.
+    Captions + watermark applied to each part.
+    """
+    set_step(job_id, f"Splitting video into {clip_duration}s parts...", 78)
+    log(job_id, f"Split mode — {clip_duration}s parts, {fmt} format")
+
+    total_duration = get_duration(video_path)
+    if total_duration == 0:
+        raise RuntimeError("Could not read video duration.")
+
+    out_dir = CLIPS_DIR / str(job_id)
+    out_dir.mkdir(exist_ok=True)
+    crop = get_crop(fmt)
+
+    total_parts = int(total_duration // clip_duration)
+    if total_parts == 0:
+        total_parts = 1
+
+    log(job_id, f"Video is {int(total_duration)}s — creating {total_parts} parts of {clip_duration}s")
+    results = []
+
+    for part_num in range(1, total_parts + 1):
+        start = (part_num - 1) * clip_duration
+        end = min(part_num * clip_duration, total_duration)
+        duration = end - start
+        label = f"Part {part_num}"
+        raw_path = str(out_dir / f"split_{part_num:03d}_raw.mp4")
+        cap_path = str(out_dir / f"split_{part_num:03d}_cap.mp4")
+        final_path = str(out_dir / f"split_{part_num:03d}_final.mp4")
+        thumb_path = str(out_dir / f"split_{part_num:03d}_thumb.jpg")
+
+        log(job_id, f"Cutting Part {part_num}/{total_parts} ({int(start)}s-{int(end)}s)")
+
+        # Cut
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", video_path,
+            "-t", str(duration),
+            "-vf", crop,
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            "-loglevel", "error",
+            raw_path
+        ], capture_output=True)
+
+        if r.returncode != 0:
+            log(job_id, f"Split part {part_num} cut failed: {r.stderr.decode()[:200]}", "error")
+            continue
+
+        # Burn captions for this segment
+        buf_segs = [s for s in segments if s["start"] >= start - 2 and s["end"] <= end + 2]
+        work_path = raw_path
+
+        if buf_segs:
+            ass_content = build_ass_karaoke(buf_segs, start, end, fmt, font, outline_color, font_size, position)
+            if ass_content:
+                ass_path = raw_path.replace("_raw.mp4", ".ass")
+                with open(ass_path, "w", encoding="utf-8") as f:
+                    f.write(ass_content)
+                r2 = subprocess.run([
+                    "ffmpeg", "-y", "-i", raw_path,
+                    "-vf", f"ass={ass_path}",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+                    "-c:a", "copy", "-movflags", "+faststart",
+                    "-loglevel", "error", cap_path
+                ], capture_output=True)
+                if r2.returncode == 0:
+                    if os.path.exists(raw_path): os.remove(raw_path)
+                    if os.path.exists(ass_path): os.remove(ass_path)
+                    work_path = cap_path
+
+        # Watermark
+        if apply_watermark_flag:
+            wm_out = work_path.replace(".mp4", "_wm.mp4")
+            if apply_text_watermark(work_path, wm_out, watermark_text, watermark_font):
+                if os.path.exists(work_path): os.remove(work_path)
+                work_path = wm_out
+
+        if work_path != final_path:
+            os.rename(work_path, final_path)
+
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", "2", "-i", final_path,
+            "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
+        ], capture_output=True)
+
+        transcript = " ".join(s["text"] for s in buf_segs)
+        chunks = split_segments_into_chunks(buf_segs, start, end, fmt)
+
+        results.append({
+            "clip_path": final_path,
+            "thumbnail_path": thumb_path if os.path.exists(thumb_path) else None,
+            "start": start, "end": end,
+            "duration": duration, "score": 75,
+            "transcript": transcript,
+            "hook": "",
+            "segments_json": json.dumps(chunks),
+            "format": fmt, "label": label,
+        })
+
+        pct = 78 + int(part_num / total_parts * 21)
+        set_step(job_id, f"Split {part_num}/{total_parts}", pct)
+
+    log(job_id, f"Split complete — {len(results)} parts")
+    set_step(job_id, f"Split ready — {len(results)} parts", 99)
+    return results
+
+
+# ─── Caption Builders ─────────────────────────────────────────────────────
+
 def split_segments_into_chunks(segments: list, clip_start: float, clip_end: float, fmt: str) -> list:
-    """
-    Split Whisper segments into caption chunks of max 5-6 words.
-    Returns list of {text, start, end} relative to clip start.
-    These are stored in DB and shown in the editor.
-    """
     max_w = MAX_WORDS.get(fmt, 5)
     clip_dur = clip_end - clip_start
     chunks = []
@@ -496,22 +1059,17 @@ def split_segments_into_chunks(segments: list, clip_start: float, clip_end: floa
         se = min(clip_dur, se)
         if se <= ss:
             continue
-
         words = seg["text"].strip().split()
         if not words:
             continue
-
-        # Split into groups of max_w words
         for i in range(0, len(words), max_w):
             group = words[i:i + max_w]
             if not group:
                 continue
-            # Proportional timing within segment
             total = len(words)
             group_start = ss + (se - ss) * (i / total)
             group_end = ss + (se - ss) * (min(i + max_w, total) / total)
             text = " ".join(group)
-            # Clean punctuation except apostrophes
             text = re.sub(r"[^A-Za-z0-9' ]", "", text).strip().upper()
             if text:
                 chunks.append({
@@ -519,7 +1077,6 @@ def split_segments_into_chunks(segments: list, clip_start: float, clip_end: floa
                     "start": round(group_start, 3),
                     "end": round(group_end, 3),
                 })
-
     return chunks
 
 
@@ -529,13 +1086,6 @@ def build_ass_karaoke(segments: list, clip_start: float, clip_end: float,
                       font_size: int = None,
                       position: str = "bottom",
                       highlight_color: str = "yellow") -> str:
-    """
-    Karaoke-style captions — exactly like the screenshot:
-    - Words appear in groups of 4, locked position using \\pos
-    - Active word = yellow, all others = white
-    - 100ms early highlight so yellow hits exactly when word is spoken
-    - \\pos locks Y coordinate — zero jumping
-    """
     res_x, res_y = PLAY_RES.get(fmt, (1080, 1920))
     clip_duration = clip_end - clip_start
     fs = font_size if font_size else DEFAULT_FONT_SIZE.get(fmt, 82)
@@ -545,7 +1095,6 @@ def build_ass_karaoke(segments: list, clip_start: float, clip_end: float,
     bc = "&H80000000"
     max_w = MAX_WORDS.get(fmt, 4)
 
-    # Fixed X center, fixed Y per position — never moves
     pos_x = res_x // 2
     pos_y = {
         "bottom": {"9:16": 1750, "16:9": 980, "1:1": 940},
@@ -563,11 +1112,10 @@ def build_ass_karaoke(segments: list, clip_start: float, clip_end: float,
         sec = s % 60
         return f"{h}:{m:02d}:{sec:05.2f}"
 
-    # Collect words with 100ms early highlight
     words = []
     for seg in segments:
         for w in seg.get("words", []):
-            ws = round(w["start"] - clip_start - 0.05, 3)  # 50ms early
+            ws = round(w["start"] - clip_start - 0.05, 3)
             we = round(w["end"] - clip_start, 3)
             if we >= 0 and ws <= clip_duration:
                 ws = max(0.0, ws)
@@ -577,7 +1125,6 @@ def build_ass_karaoke(segments: list, clip_start: float, clip_end: float,
                     if c:
                         words.append({"word": c, "start": ws, "end": we})
 
-    # Fallback: distribute proportionally
     if not words:
         for seg in segments:
             ss = round(seg["start"] - clip_start, 3)
@@ -595,13 +1142,12 @@ def build_ass_karaoke(segments: list, clip_start: float, clip_end: float,
                         words.append({
                             "word": c,
                             "start": round(max(0.0, ss + j * d - 0.05), 3),
-                            "end": round(min(clip_duration, ss + (j+1) * d), 3)
+                            "end": round(min(clip_duration, ss + (j + 1) * d), 3)
                         })
 
     if not words:
         return None
 
-    # ASS header — Alignment 8 = top-center of \pos coordinate
     ass = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {res_x}
@@ -617,12 +1163,11 @@ Style: CF,{font},{fs},{white},&H000000FF,{oc},{bc},1,0,0,0,100,100,0,0,1,5,2,8,0
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
-    # One dialogue line per active word — no overlap between groups
-    # Pre-compute groups
     groups = []
     for i in range(0, len(words), max_w):
         g = words[i:i + max_w]
-        if g: groups.append(g)
+        if g:
+            groups.append(g)
 
     for g_idx, group in enumerate(groups):
         next_group_start = groups[g_idx + 1][0]["start"] if g_idx + 1 < len(groups) else None
@@ -643,7 +1188,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 if idx == active_idx:
                     parts.append(f"{{{chr(92)}c{yellow}}}{w['word']}{{{chr(92)}c{white}}}")
                 else:
-                    parts.append(w['word'])
+                    parts.append(w["word"])
 
             text = " ".join(parts)
             ass += f"Dialogue: 0,{to_ass_time(line_start)},{to_ass_time(line_end)},CF,,0,0,0,,{{{chr(92)}pos({pos_x},{pos_y})}}{text}\n"
@@ -656,21 +1201,13 @@ def build_ass(segments: list, clip_start: float, clip_end: float,
               text_color: str = "white", outline_color: str = "black",
               preset: str = "bold", font_size: int = None,
               position: str = "bottom") -> str:
-    """
-    Build ASS file from pre-split caption chunks.
-    segments can be raw Whisper segments OR pre-split chunks {text, start, end}.
-    """
     res_x, res_y = PLAY_RES.get(fmt, (1080, 1920))
     clip_duration = clip_end - clip_start
-
     fs = font_size if font_size else DEFAULT_FONT_SIZE.get(fmt, 72)
     tc = ASS_COLORS.get(text_color, "&H00FFFFFF")
     oc = ASS_COLORS.get(outline_color, "&H00000000")
     bc = "&H80000000"
-
     bold, border_style, outline, shadow, extra = CAPTION_PRESETS.get(preset, CAPTION_PRESETS["bold"])
-
-    # Position: alignment and margin
     pos_settings = POSITION_MAP.get(position, POSITION_MAP["bottom"])
     alignment, margin_v = pos_settings.get(fmt, (2, 120))
 
@@ -701,22 +1238,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     lines_added = 0
 
-    # Check if these are pre-split chunks {text, start, end} or raw segments
-    if segments and "text" in segments[0] and "start" in segments[0] and "end" in segments[0]:
-        if "words" not in segments[0]:
-            # Pre-split chunks — use directly
-            for chunk in segments:
-                ss = chunk["start"]
-                se = chunk["end"]
-                if se < 0 or ss > clip_duration or se <= ss:
-                    continue
-                text = clean_text(chunk["text"])
-                if text:
-                    ass += f"Dialogue: 0,{to_ass_time(ss)},{to_ass_time(se)},CF,,0,0,0,,{extra}{text}\n"
-                    lines_added += 1
-            return ass if lines_added > 0 else None
+    if segments and "text" in segments[0] and "words" not in segments[0]:
+        for chunk in segments:
+            ss, se = chunk["start"], chunk["end"]
+            if se < 0 or ss > clip_duration or se <= ss:
+                continue
+            text = clean_text(chunk["text"])
+            if text:
+                ass += f"Dialogue: 0,{to_ass_time(ss)},{to_ass_time(se)},CF,,0,0,0,,{extra}{text}\n"
+                lines_added += 1
+        return ass if lines_added > 0 else None
 
-    # Raw Whisper segments — split into chunks
     chunks = split_segments_into_chunks(segments, clip_start, clip_end, fmt)
     for chunk in chunks:
         ass += f"Dialogue: 0,{to_ass_time(chunk['start'])},{to_ass_time(chunk['end'])},CF,,0,0,0,,{extra}{chunk['text']}\n"
@@ -725,281 +1257,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return ass if lines_added > 0 else None
 
 
-def step_package_mode(video_path: str, moments: list, segments: list,
-                      job_id: int, font: str = "Bebas Neue",
-                      text_color: str = "white", outline_color: str = "black",
-                      highlight_color: str = "yellow", font_size: int = None,
-                      position: str = "bottom",
-                      apply_watermark: bool = True,
-                      wm_size: str = "large", wm_position: str = "top_right",
-                      client_logo: str = None,
-                      watermark_text: str = "ClipForge",
-                      watermark_font: str = "Arial Rounded MT Bold",
-                      demo_mode: bool = False) -> list:
-    """
-    Package mode — top 3 moments × 16:9 = 3 clips.
-    demo_mode: caps clips at 20 seconds for prospect pitches.
-    """
-    if demo_mode:
-        set_step(job_id, "Creating demo package — 3 x 20s clips...", 78)
-        log(job_id, "Demo package mode — 20 second clips for pitching")
-    else:
-        set_step(job_id, "Creating package — top 3 moments, 16:9...", 78)
-        log(job_id, "Package mode — 3 clips, 16:9 format")
-
-    top3 = moments[:3]
-    fmt = "16:9"
-    out_dir = CLIPS_DIR / str(job_id)
-    out_dir.mkdir(exist_ok=True)
-
-    logo_path = client_logo if client_logo and os.path.exists(client_logo) else str(STATIC_DIR / "cf_watermark.png")
-    results = []
-    total = len(top3)
-    count = 0
-
-    for m_idx, moment in enumerate(top3):
-        buf_start = max(0, moment["start"] - 5)
-        buf_end = moment["end"] + 5
-        buf_segs = [s for s in segments if s["start"] >= buf_start and s["end"] <= buf_end]
-        duration = min(moment["end"] - moment["start"], 20) if demo_mode else moment["end"] - moment["start"]
-        count += 1
-        label = f"Demo Clip {m_idx+1}" if demo_mode else f"Moment {m_idx+1}"
-        slug = label.replace(" ", "_").replace(":", "x").replace("—", "-")
-        raw_path = str(out_dir / f"pkg_{count:02d}_{slug}_raw.mp4")
-        cap_path = str(out_dir / f"pkg_{count:02d}_{slug}_cap.mp4")
-        final_path = str(out_dir / f"pkg_{count:02d}_{slug}_final.mp4")
-        thumb_path = str(out_dir / f"pkg_{count:02d}_{slug}_thumb.jpg")
-
-        crop = get_crop(fmt)
-        r = subprocess.run([
-            "ffmpeg", "-y",
-            "-ss", str(moment["start"]),
-            "-i", video_path,
-            "-t", str(duration),
-            "-vf", crop,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-loglevel", "error",
-            raw_path
-        ], capture_output=True)
-
-        if r.returncode != 0:
-            log(job_id, f"Package clip {count} cut failed", "error")
-            continue
-
-        # Burn karaoke captions
-        ass_content = build_ass_karaoke(
-            buf_segs, moment["start"], moment["end"],
-            fmt, font, outline_color, font_size, position, highlight_color
-        )
-        work_path = raw_path
-        if ass_content:
-            ass_path = raw_path.replace("_raw.mp4", ".ass")
-            with open(ass_path, "w", encoding="utf-8") as f:
-                f.write(ass_content)
-            r2 = subprocess.run([
-                "ffmpeg", "-y", "-i", raw_path,
-                "-vf", f"ass={ass_path}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                "-c:a", "copy", "-movflags", "+faststart",
-                "-loglevel", "error", cap_path
-            ], capture_output=True)
-            if r2.returncode == 0:
-                if os.path.exists(raw_path): os.remove(raw_path)
-                if os.path.exists(ass_path): os.remove(ass_path)
-                work_path = cap_path
-
-        # Apply watermark
-        if apply_watermark:
-            wm_text = "ClipForge"
-            wm_font = "Arial Rounded MT Bold"
-            success = apply_text_watermark(work_path, final_path, wm_text, wm_font)
-            if success:
-                if os.path.exists(work_path): os.remove(work_path)
-                work_path = final_path
-
-        if work_path != final_path:
-            os.rename(work_path, final_path)
-
-        # Thumbnail
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", "2", "-i", final_path,
-            "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
-        ], capture_output=True)
-
-        # Pre-split chunks for editor
-        chunks = split_segments_into_chunks(buf_segs, moment["start"], moment["end"], fmt)
-
-        results.append({
-            "clip_path": final_path,
-            "thumbnail_path": thumb_path if os.path.exists(thumb_path) else None,
-            "start": moment["start"], "end": moment["end"],
-            "duration": duration, "score": moment["score"],
-            "transcript": moment["transcript"],
-            "segments_json": json.dumps(chunks),
-            "format": fmt, "label": label,
-        })
-
-        pct = 78 + int(count / total * 21)
-        set_step(job_id, f"Package {count}/{total}: {label}", pct)
-        log(job_id, f"Package clip {count} done: {label}")
-
-    log(job_id, f"Package complete — {len(results)} clips")
-    set_step(job_id, f"Package ready — {len(results)} clips", 99)
-    return results
-
-
-def step6_apply_watermark(clips: list, job_id: int, fmt: str,
-                           wm_size: str = "large",
-                           wm_position: str = "top_right",
-                           client_logo: str = None,
-                           watermark_text: str = "ClipForge",
-                           watermark_font: str = "Arial Rounded MT Bold") -> list:
-    """
-    Burn text watermark onto each clip.
-    White text, dark border+shadow, top right. No PNG — no transparency issues ever.
-    Client name used if set, otherwise ClipForge.
-    """
-    set_step(job_id, "Applying watermark...", 97)
-    log(job_id, f"Step 6 — Text watermark: '{watermark_text}' ({watermark_font})")
-
-    results = []
-    for i, clip in enumerate(clips):
-        in_path = clip["clip_path"]
-        stem = in_path.rsplit(".", 1)[0]
-        out_path = stem + "_wm.mp4"
-        thumb_path = stem + "_thumb.jpg"
-
-        success = apply_text_watermark(in_path, out_path, watermark_text, watermark_font)
-
-        if success and os.path.exists(out_path):
-            if os.path.exists(in_path): os.remove(in_path)
-            clip["clip_path"] = out_path
-            log(job_id, f"Watermark applied to clip {i+1}")
-            subprocess.run([
-                "ffmpeg", "-y", "-ss", "2", "-i", out_path,
-                "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
-            ], capture_output=True)
-            if os.path.exists(thumb_path):
-                clip["thumbnail_path"] = thumb_path
-        else:
-            log(job_id, f"Watermark failed clip {i+1} — keeping without watermark", "warn")
-
-        results.append(clip)
-
-    set_step(job_id, "Watermark complete", 99)
-    return results
-
-
-def reburn_captions_legacy():
-    """Re-cut from original source with corrected captions."""
-    from db.database import get_conn, log as db_log
-    conn = get_conn()
-    clip_row = conn.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
-    if not clip_row:
-        conn.close()
-        db_log(clip_id, "Reburn failed — clip not found", "error")
-        return False
-    clip = dict(clip_row)
-    job_row = conn.execute("SELECT * FROM jobs WHERE id=?", (clip["job_id"],)).fetchone()
-    conn.close()
-    if not job_row:
-        db_log(clip_id, "Reburn failed — job not found", "error")
-        return False
-    job = dict(job_row)
-    source_path = job.get("source_file") or ""
-    if not source_path or not os.path.exists(source_path):
-        upload_dir = UPLOADS_DIR / str(clip["job_id"])
-        candidates = list(upload_dir.glob("source.*")) if upload_dir.exists() else []
-        if candidates:
-            source_path = str(candidates[0])
-        else:
-            db_log(clip_id, "Reburn failed — original source not found", "error")
-            return False
-
-    fmt = clip.get("format") or "9:16"
-    clip_path = clip["file_path"]
-    start_sec = clip["start_sec"]
-    end_sec = clip["end_sec"]
-    duration = end_sec - start_sec
-
-    db_log(clip_id, "Re-cutting from source with corrected captions...")
-
-    words_list = transcript.strip().split()
-    if not words_list:
-        db_log(clip_id, "Empty transcript", "error")
-        return False
-
-    word_dur = duration / len(words_list)
-    fake_segs = [{
-        "start": start_sec, "end": end_sec, "text": transcript,
-        "words": [{"word": w, "start": start_sec + i*word_dur,
-                   "end": start_sec + (i+1)*word_dur}
-                  for i, w in enumerate(words_list)]
-    }]
-
-    ass_content = build_ass(fake_segs, start_sec, end_sec, fmt, font, color)
-    if not ass_content:
-        db_log(clip_id, "Could not build ASS file", "error")
-        return False
-
-    with tempfile.TemporaryDirectory() as tmp:
-        ass_path = os.path.join(tmp, "captions.ass")
-        raw_path = os.path.join(tmp, "raw.mp4")
-        final_path = os.path.join(tmp, "final.mp4")
-        with open(ass_path, "w") as f:
-            f.write(ass_content)
-
-        crop = get_crop(fmt)
-        r1 = subprocess.run([
-            "ffmpeg", "-y", "-ss", str(start_sec), "-i", source_path,
-            "-t", str(duration), "-vf", crop,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-            "-loglevel", "error", raw_path
-        ], capture_output=True)
-        if r1.returncode != 0:
-            db_log(clip_id, f"Reburn cut failed: {r1.stderr.decode()[:200]}", "error")
-            return False
-
-        r2 = subprocess.run([
-            "ffmpeg", "-y", "-i", raw_path,
-            "-vf", f"ass={ass_path}",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "copy", "-movflags", "+faststart",
-            "-loglevel", "error", final_path
-        ], capture_output=True)
-        if r2.returncode != 0:
-            db_log(clip_id, f"Reburn caption burn failed: {r2.stderr.decode()[:200]}", "error")
-            return False
-
-        import shutil
-        shutil.copy2(final_path, clip_path)
-        thumb = clip.get("thumbnail_path") or clip_path.replace(".mp4", "_thumb.jpg")
-        subprocess.run([
-            "ffmpeg", "-y", "-ss", "2", "-i", clip_path,
-            "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb
-        ], capture_output=True)
-        db_log(clip_id, "Reburn complete.")
-        return True
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 def get_crop(fmt: str) -> str:
-    """
-    Correct crop — no zoom, no distortion.
-    9:16: Crop width to 9:16 ratio from center, scale up. Works for any source.
-    16:9: Scale to fit, letterbox. No crop.
-    1:1:  Crop to square from center, scale.
-    """
     if fmt == "9:16":
         return "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920"
     elif fmt == "16:9":
         return "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black"
     elif fmt == "1:1":
-        return 'crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=1080:1080'
+        return "crop=min(iw\\,ih):min(iw\\,ih):(iw-min(iw\\,ih))/2:(ih-min(iw\\,ih))/2,scale=1080:1080"
     return "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920"
 
 
@@ -1021,17 +1287,17 @@ def generate_title(transcript: str) -> str:
     return " ".join(words[:10]).capitalize() + ("..." if len(words) > 10 else "")
 
 
-
-def apply_text_watermark(in_path: str, out_path: str, text: str = "ClipForge",
+def apply_text_watermark(in_path: str, out_path: str,
+                          text: str = "ClipForge",
                           font: str = "Arial Rounded MT Bold") -> bool:
     """
-    Burn a clean text watermark onto a video.
-    No PNG, no transparency issues. White text with dark border/shadow.
-    Top right corner. Professional look.
-    Winning fonts: Arial Rounded MT Bold, Comic Sans MS, Marker Felt.
+    Burn text watermark — white text, dark border + shadow, top right.
+    No PNG, no transparency issues. Works on every video, every time.
     """
+    # Escape special chars
+    safe_text = text.replace("'", "\\'").replace(":", "\\:").replace(",", "\\,")
     wm_filter = (
-        f"drawtext=text='{text}':font='{font}':fontsize=38:"
+        f"drawtext=text='{safe_text}':font='{font}':fontsize=38:"
         f"fontcolor=white:x=w-tw-25:y=25:"
         f"shadowx=2:shadowy=2:shadowcolor=black@1.0:"
         f"borderw=2:bordercolor=black@0.9"
