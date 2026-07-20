@@ -6,421 +6,754 @@
 <title>ClipForge Editor</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0f;color:#e8e8f0;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#e8e8e0;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
 
 /* Top bar */
-.topbar{display:flex;align-items:center;padding:10px 20px;background:#111118;border-bottom:1px solid #1e1e2e;gap:12px;flex-shrink:0;}
-.back-btn{display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer;padding:5px 10px;border-radius:6px;border:1px solid #1e1e2e;background:none;font-family:inherit;transition:all .12s;}
-.back-btn:hover{border-color:#333;color:#ccc;}
-.editor-title{font-size:14px;font-weight:600;color:#fff;}
-.save-btn{margin-left:auto;background:#6366f1;border:none;color:#fff;font-size:13px;font-weight:700;padding:8px 20px;border-radius:8px;cursor:pointer;font-family:inherit;transition:opacity .15s;}
-.save-btn:hover{opacity:.88;}
-.save-btn:disabled{opacity:.4;cursor:not-allowed;}
+.topbar{display:flex;align-items:center;padding:10px 16px;background:#111;border-bottom:1px solid #1a1a1a;gap:10px;flex-shrink:0;}
+.logo{font-size:16px;font-weight:800;color:#fff;}.logo span{color:#f97316;}
+.clip-title{font-size:13px;color:#888;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.score-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;background:#1a0f00;color:#f97316;border:1px solid #f97316;}
+.btn-back{font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid #333;background:none;color:#888;cursor:pointer;font-family:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.btn-back:hover{border-color:#555;color:#e8e8e0;}
+.btn-save{font-size:12px;font-weight:700;padding:6px 18px;border-radius:7px;border:none;background:linear-gradient(135deg,#f97316,#fbbf24);color:#000;cursor:pointer;font-family:inherit;}
+.btn-save:hover{opacity:.88;}
+.btn-save:disabled{opacity:.4;cursor:not-allowed;}
+.btn-reprocess{font-size:11px;padding:5px 14px;border-radius:6px;border:1px solid #f97316;background:#1a0f00;color:#fbbf24;cursor:pointer;font-family:inherit;}
+.btn-reprocess:hover{background:#2a1800;}
 
-/* Main layout — 3 panels */
-.editor-layout{display:flex;flex:1;overflow:hidden;}
+/* Main layout */
+.editor-body{flex:1;display:flex;overflow:hidden;}
 
-/* Left — segment list */
-.seg-panel{width:300px;flex-shrink:0;background:#0d0d14;border-right:1px solid #1e1e2e;display:flex;flex-direction:column;overflow:hidden;}
-.seg-panel-header{padding:12px 14px;border-bottom:1px solid #1e1e2e;display:flex;align-items:center;justify-content:space-between;}
-.seg-panel-title{font-size:12px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;}
-.seg-list{flex:1;overflow-y:auto;padding:8px;}
-.seg-item{background:#111118;border:1px solid #1e1e2e;border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;transition:all .12s;}
-.seg-item:hover{border-color:#333;}
-.seg-item.active{border-color:#6366f1;background:#1a1535;}
-.seg-time{font-size:10px;color:#444;font-family:monospace;margin-bottom:5px;}
-.seg-text{font-size:12px;color:#ccc;line-height:1.4;}
-.seg-item.active .seg-text{color:#fff;}
-.seg-edit-wrap{margin-top:6px;display:none;}
-.seg-item.active .seg-edit-wrap{display:block;}
-.seg-input{width:100%;background:#0d0d14;border:1px solid #6366f1;border-radius:5px;color:#fff;font-size:12px;padding:5px 8px;outline:none;font-family:inherit;resize:none;}
-.seg-actions{display:flex;gap:5px;margin-top:5px;}
-.seg-btn{font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #1e1e2e;background:none;color:#555;cursor:pointer;font-family:inherit;transition:all .12s;}
-.seg-btn:hover{border-color:#333;color:#aaa;}
-.seg-btn.primary{border-color:#6366f1;color:#a5b4fc;background:#1a1535;}
+/* Left panel — video */
+.video-panel{width:420px;flex-shrink:0;display:flex;flex-direction:column;background:#0d0d0d;border-right:1px solid #1a1a1a;}
+.video-wrap{position:relative;background:#000;flex-shrink:0;}
+.video-wrap video{width:100%;display:block;max-height:380px;object-fit:contain;}
+.video-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.3);opacity:0;transition:opacity .15s;cursor:pointer;}
+.video-overlay:hover{opacity:1;}
+.play-icon{font-size:48px;color:rgba(255,255,255,.9);}
 
-/* Center — video preview */
-.video-panel{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0a0f;padding:20px;gap:12px;}
-.video-container{position:relative;max-width:340px;width:100%;}
-.video-container video{width:100%;border-radius:12px;background:#000;}
-.video-controls{display:flex;align-items:center;gap:10px;width:100%;max-width:340px;}
-.time-display{font-size:11px;color:#555;font-family:monospace;min-width:80px;}
-.play-btn{background:#6366f1;border:none;color:#fff;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+/* Trim bar */
+.trim-section{padding:12px 14px;border-bottom:1px solid #1a1a1a;}
+.trim-label{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.trim-bar-wrap{position:relative;height:36px;background:#0a0a0a;border-radius:6px;overflow:hidden;border:1px solid #1a1a1a;cursor:pointer;}
+.trim-progress{position:absolute;top:0;left:0;height:100%;background:#f97316;opacity:.15;transition:width .1s;}
+.trim-playhead{position:absolute;top:0;width:2px;height:100%;background:#f97316;transition:left .1s;}
+.trim-handle{position:absolute;top:0;width:10px;height:100%;background:#f97316;cursor:ew-resize;border-radius:2px;display:flex;align-items:center;justify-content:center;}
+.trim-handle::after{content:'';width:2px;height:16px;background:rgba(255,255,255,.7);border-radius:1px;}
+.trim-handle.start{left:0;border-radius:4px 0 0 4px;}
+.trim-handle.end{right:0;border-radius:0 4px 4px 0;}
+.trim-times{display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:#666;font-family:monospace;}
+.trim-current{text-align:center;color:#f97316;}
 
-/* Right — style panel */
-.style-panel{width:280px;flex-shrink:0;background:#0d0d14;border-left:1px solid #1e1e2e;overflow-y:auto;padding:14px;}
-.sp-section{margin-bottom:20px;}
-.sp-title{font-size:11px;font-weight:600;color:#555;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;}
-.sp-toggle{font-size:10px;color:#6366f1;cursor:pointer;}
+/* Playback controls */
+.playback{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #1a1a1a;}
+.pbtn{background:none;border:1px solid #222;border-radius:6px;color:#888;cursor:pointer;font-size:14px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-family:inherit;transition:all .12s;}
+.pbtn:hover{border-color:#f97316;color:#f97316;}
+.pbtn.active{background:#f97316;border-color:#f97316;color:#000;}
+.vol-row{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:#555;}
+.vol-row input{accent-color:#f97316;width:60px;}
+.speed-sel{background:#111;border:1px solid #222;border-radius:5px;color:#888;font-size:10px;padding:2px 5px;font-family:inherit;}
 
-/* Preset buttons — Saved style Ag icons */
-.preset-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;}
-.preset-card{background:#13131e;border:2px solid #1e1e2e;border-radius:8px;padding:8px 4px;cursor:pointer;text-align:center;transition:all .12s;}
-.preset-card.sel{border-color:#6366f1;background:#1a1535;}
-.preset-card:hover:not(.sel){border-color:#333;}
-.preset-card-label{font-size:16px;font-weight:800;margin-bottom:3px;line-height:1;}
-.preset-card-name{font-size:9px;color:#555;}
-.preset-card.sel .preset-card-name{color:#a5b4fc;}
+/* Caption style panel */
+.style-panel{padding:10px 14px;border-bottom:1px solid #1a1a1a;}
+.style-label{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.style-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.style-sel{background:#111;border:1px solid #222;border-radius:5px;color:#aaa;font-size:11px;padding:4px 7px;font-family:inherit;cursor:pointer;}
+.style-sel:focus{border-color:#f97316;outline:none;}
+.color-pick{display:flex;gap:5px;}
+.cpick{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .12s;}
+.cpick.sel{border-color:#fff;}
+.size-row{display:flex;align-items:center;gap:5px;font-size:10px;color:#555;}
+.size-row input[type=range]{width:70px;accent-color:#f97316;}
+.size-val{font-size:10px;color:#f97316;font-family:monospace;min-width:28px;}
 
-/* Color swatches */
-.color-swatches{display:flex;gap:6px;flex-wrap:wrap;}
-.swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color .12s;}
-.swatch.sel{border-color:#fff;}
-.swatch.black-swatch{background:#111;border-color:#555;}
-.swatch.black-swatch.sel{border-color:#fff;}
+/* Status */
+.status-bar{padding:8px 14px;font-size:11px;color:#555;background:#080808;border-top:1px solid #1a1a1a;margin-top:auto;}
 
-/* Font size */
-.size-control{display:flex;align-items:center;gap:10px;}
-.size-control input[type=range]{flex:1;accent-color:#6366f1;}
-.size-label{font-size:12px;color:#6366f1;font-family:monospace;min-width:40px;text-align:right;}
+/* Right panel — transcript */
+.transcript-panel{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.trans-header{padding:12px 16px;border-bottom:1px solid #1a1a1a;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.trans-title{font-size:12px;font-weight:600;color:#aaa;}
+.search-wrap{flex:1;display:flex;align-items:center;background:#111;border:1px solid #1a1a1a;border-radius:6px;padding:0 8px;gap:6px;}
+.search-wrap input{flex:1;background:none;border:none;color:#e8e8e0;font-size:11px;padding:5px 0;outline:none;font-family:inherit;}
+.search-wrap input::placeholder{color:#444;}
+.search-icon{color:#555;font-size:12px;}
+.btn-edit-all{font-size:10px;padding:4px 10px;border-radius:5px;border:1px solid #333;background:none;color:#666;cursor:pointer;font-family:inherit;white-space:nowrap;}
+.btn-edit-all:hover{border-color:#f97316;color:#f97316;}
 
-/* Position */
-.pos-btns{display:flex;gap:6px;}
-.pos-btn{flex:1;font-size:11px;padding:6px;border-radius:6px;border:1px solid #1e1e2e;background:#13131e;color:#555;cursor:pointer;font-family:inherit;text-align:center;transition:all .12s;}
-.pos-btn.sel{border-color:#6366f1;color:#a5b4fc;background:#1a1535;}
+/* Transcript scroll area */
+.trans-scroll{flex:1;overflow-y:auto;padding:16px;}
+.trans-scroll::-webkit-scrollbar{width:4px;}
+.trans-scroll::-webkit-scrollbar-track{background:#0d0d0d;}
+.trans-scroll::-webkit-scrollbar-thumb{background:#222;border-radius:2px;}
 
-/* Font select */
-.font-select{width:100%;background:#13131e;border:1px solid #1e1e2e;border-radius:6px;color:#aaa;font-size:12px;padding:7px 10px;cursor:pointer;font-family:inherit;}
+/* Caption segments */
+.seg{margin-bottom:16px;padding:12px;border-radius:8px;border:1px solid transparent;transition:all .12s;cursor:pointer;}
+.seg:hover{background:#111;border-color:#1a1a1a;}
+.seg.active{background:#1a0f00;border-color:#f97316;}
+.seg.trimmed{opacity:.3;}
+.seg-time{font-size:10px;color:#555;font-family:monospace;margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+.seg-time .in-range{color:#f97316;}
+.seg-words{display:flex;flex-wrap:wrap;gap:3px;}
+.word{font-size:14px;font-weight:500;padding:2px 5px;border-radius:4px;cursor:pointer;transition:all .1s;line-height:1.6;border:1px solid transparent;}
+.word:hover{background:#1a1a1a;border-color:#333;}
+.word.playing{background:#f97316;color:#000;border-color:#f97316;}
+.word.in-trim{color:#e8e8e0;}
+.word.out-trim{color:#444;}
+.word.editing{background:#111;border:1px solid #f97316;outline:none;min-width:40px;cursor:text;}
 
-/* Subtitles toggle */
-.subtitle-row{display:flex;align-items:center;justify-content:space-between;}
-.subtitle-label{font-size:13px;font-weight:600;color:#fff;}
-.toggle-switch{width:44px;height:24px;background:#1e1e2e;border-radius:12px;cursor:pointer;position:relative;transition:background .2s;}
-.toggle-switch.on{background:#6366f1;}
-.toggle-switch::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:3px;transition:left .2s;}
-.toggle-switch.on::after{left:23px;}
+/* Edit mode */
+.seg-edit-row{display:flex;align-items:center;gap:6px;margin-top:8px;}
+.seg-edit-input{flex:1;background:#0d0d0d;border:1px solid #f97316;border-radius:5px;color:#fff;font-size:13px;padding:5px 8px;outline:none;font-family:inherit;}
+.seg-edit-btn{font-size:10px;padding:4px 9px;border-radius:5px;cursor:pointer;font-family:inherit;border:none;}
+.btn-apply{background:#f97316;color:#000;font-weight:700;}
+.btn-cancel-edit{background:#1a1a1a;color:#888;border:1px solid #222!important;}
 
-/* Loading */
-.loading{display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:13px;}
-.toast{position:fixed;bottom:20px;right:20px;font-size:12px;font-weight:600;padding:10px 16px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:999;}
+/* Empty state */
+.empty-trans{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:#444;text-align:center;padding:20px;}
+
+/* Saving overlay */
+.saving-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100;display:none;}
+.saving-box{background:#111;border:1px solid #f97316;border-radius:12px;padding:24px 32px;text-align:center;}
+.saving-box h3{font-size:16px;margin-bottom:6px;color:#fff;}
+.saving-box p{font-size:12px;color:#888;}
+.spinner{width:32px;height:32px;border:3px solid #1a1a1a;border-top:3px solid #f97316;border-radius:50%;animation:spin .8s linear infinite;margin:12px auto 0;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;font-size:12px;font-weight:600;padding:10px 16px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:200;}
 .toast.show{opacity:1;}
 .toast.success{background:#065f46;color:#6ee7b7;}
 .toast.error{background:#b91c1c;color:#fecaca;}
-.toast.info{background:#6366f1;color:#fff;}
+.toast.info{background:#f97316;color:#000;}
 </style>
 </head>
 <body>
 
+<!-- Top bar -->
 <div class="topbar">
-  <button class="back-btn" onclick="goBack()">← Back</button>
-  <div class="editor-title" id="editorTitle">Caption Editor</div>
-  <button class="save-btn" id="saveBtn" onclick="saveAndReburn()">Save & Re-Process</button>
+  <a class="btn-back" href="/" id="backBtn">← Back</a>
+  <div class="logo">Clip<span>Forge</span></div>
+  <div class="clip-title" id="clipTitle">Loading clip...</div>
+  <span class="score-badge" id="scoreBadge" style="display:none">0%</span>
+  <button class="btn-reprocess" id="reprocessBtn" onclick="reprocess()" style="display:none">↻ Re-render</button>
+  <button class="btn-save" id="saveBtn" onclick="saveChanges()" disabled>Save Changes</button>
 </div>
 
-<div class="editor-layout">
+<!-- Main editor body -->
+<div class="editor-body">
 
-  <!-- Left: Segment list -->
-  <div class="seg-panel">
-    <div class="seg-panel-header">
-      <span class="seg-panel-title">Captions</span>
-      <span style="font-size:10px;color:#444;" id="segCount">0 segments</span>
-    </div>
-    <div class="seg-list" id="segList">
-      <div class="loading">Loading captions...</div>
-    </div>
-  </div>
-
-  <!-- Center: Video -->
+  <!-- LEFT: Video + controls -->
   <div class="video-panel">
-    <div class="video-container">
-      <video id="videoEl" controls playsinline></video>
+    <div class="video-wrap" id="videoWrap">
+      <video id="vid" preload="auto" playsinline></video>
+      <div class="video-overlay" onclick="togglePlay()">
+        <span class="play-icon" id="playIcon">▶</span>
+      </div>
     </div>
-    <div style="font-size:11px;color:#444;text-align:center;max-width:340px;line-height:1.5;">
-      Click a caption segment to jump to that moment in the video
+
+    <!-- Trim bar -->
+    <div class="trim-section">
+      <div class="trim-label">Trim clip</div>
+      <div class="trim-bar-wrap" id="trimBar">
+        <div class="trim-progress" id="trimProgress"></div>
+        <div class="trim-playhead" id="trimPlayhead"></div>
+        <div class="trim-handle start" id="handleStart" title="Drag to trim start"></div>
+        <div class="trim-handle end" id="handleEnd" title="Drag to trim end"></div>
+      </div>
+      <div class="trim-times">
+        <span id="trimStartLabel">0:00</span>
+        <span class="trim-current" id="trimCurrentLabel">0:00</span>
+        <span id="trimEndLabel">0:00</span>
+      </div>
     </div>
+
+    <!-- Playback controls -->
+    <div class="playback">
+      <button class="pbtn" onclick="skipTo(trimStart)" title="Go to start">⏮</button>
+      <button class="pbtn" id="playBtn" onclick="togglePlay()" title="Play/Pause">▶</button>
+      <button class="pbtn" onclick="skipTo(trimEnd)" title="Go to end">⏭</button>
+      <select class="speed-sel" onchange="setSpeed(this.value)" title="Playback speed">
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+      </select>
+      <div class="vol-row">
+        🔊 <input type="range" min="0" max="1" step="0.05" value="1" oninput="setVol(this.value)">
+      </div>
+    </div>
+
+    <!-- Caption style -->
+    <div class="style-panel">
+      <div class="style-label">Caption style</div>
+      <div class="style-row">
+        <select class="style-sel" id="fontSel" onchange="markDirty()">
+          <option value="Bebas Neue">Bebas Neue</option>
+          <option value="Impact">Impact</option>
+          <option value="Arial Black">Arial Black</option>
+          <option value="Arial Rounded MT Bold">Arial Rounded</option>
+          <option value="Arial">Arial</option>
+        </select>
+        <div class="color-pick" id="hlColors">
+          <div class="cpick sel" style="background:#ffff00" data-c="yellow" onclick="selHL(this)" title="Yellow"></div>
+          <div class="cpick" style="background:#00ffff" data-c="cyan" onclick="selHL(this)" title="Cyan"></div>
+          <div class="cpick" style="background:#00ff88" data-c="green" onclick="selHL(this)" title="Green"></div>
+          <div class="cpick" style="background:#ff8800" data-c="orange" onclick="selHL(this)" title="Orange"></div>
+          <div class="cpick" style="background:#ff4444" data-c="red" onclick="selHL(this)" title="Red"></div>
+          <div class="cpick" style="background:#ffffff" data-c="white" onclick="selHL(this)" title="White"></div>
+        </div>
+        <div class="size-row">
+          Sz <input type="range" min="40" max="120" value="80" oninput="updSize(this.value)">
+          <span class="size-val" id="sizeVal">80</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-bar" id="statusBar">Click a word to jump to that moment</div>
   </div>
 
-  <!-- Right: Style panel -->
-  <div class="style-panel">
-
-    <div class="sp-section">
-      <div class="subtitle-row">
-        <span class="subtitle-label">Subtitles</span>
-        <div class="toggle-switch on" id="subtitleToggle" onclick="toggleSubtitles()"></div>
+  <!-- RIGHT: Transcript -->
+  <div class="transcript-panel">
+    <div class="trans-header">
+      <span class="trans-title">📝 Script / Transcript</span>
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="searchIn" placeholder="Search words..." oninput="filterTranscript(this.value)">
       </div>
+      <button class="btn-edit-all" onclick="editAllMode()">Edit All</button>
     </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Text Appearance</div>
-      <div class="preset-grid" id="presetGrid">
-        <div class="preset-card sel" data-p="bold" onclick="selPreset(this)">
-          <div class="preset-card-label" style="color:white;text-shadow:-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000;">Ag</div>
-          <div class="preset-card-name">Bold</div>
-        </div>
-        <div class="preset-card" data-p="outlined" onclick="selPreset(this)">
-          <div class="preset-card-label" style="color:white;-webkit-text-stroke:2px black;">Ag</div>
-          <div class="preset-card-name">Outlined</div>
-        </div>
-        <div class="preset-card" data-p="shadow" onclick="selPreset(this)">
-          <div class="preset-card-label" style="color:white;text-shadow:3px 3px 6px rgba(0,0,0,.9);">Ag</div>
-          <div class="preset-card-name">Shadow</div>
-        </div>
-        <div class="preset-card" data-p="minimal" onclick="selPreset(this)">
-          <div class="preset-card-label" style="color:white;font-weight:400;">Ag</div>
-          <div class="preset-card-name">Minimal</div>
-        </div>
-        <div class="preset-card" data-p="box" onclick="selPreset(this)">
-          <div class="preset-card-label" style="color:white;background:#333;padding:2px 4px;border-radius:3px;">Ag</div>
-          <div class="preset-card-name">Box</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Outline Color</div>
-      <div class="color-swatches" id="outlineSwatches">
-        <div class="swatch sel" style="background:#111;border:2px solid #555" data-c="black" onclick="selOutline(this)" title="Black"></div>
-        <div class="swatch" style="background:#fff" data-c="white" onclick="selOutline(this)" title="White"></div>
-        <div class="swatch" style="background:#ffff00" data-c="yellow" onclick="selOutline(this)" title="Yellow"></div>
-        <div class="swatch" style="background:#ff4444" data-c="red" onclick="selOutline(this)" title="Red"></div>
-      </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Text Color</div>
-      <div class="color-swatches" id="textSwatches">
-        <div class="swatch sel" style="background:#fff" data-c="white" onclick="selTextColor(this)" title="White"></div>
-        <div class="swatch" style="background:#ffff00" data-c="yellow" onclick="selTextColor(this)" title="Yellow"></div>
-        <div class="swatch" style="background:#00ffff" data-c="cyan" onclick="selTextColor(this)" title="Cyan"></div>
-        <div class="swatch" style="background:#ff00ff" data-c="magenta" onclick="selTextColor(this)" title="Magenta"></div>
-        <div class="swatch" style="background:#ff8800" data-c="orange" onclick="selTextColor(this)" title="Orange"></div>
-        <div class="swatch" style="background:#ff4444" data-c="red" onclick="selTextColor(this)" title="Red"></div>
-      </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Font Size <span style="font-size:10px;color:#6366f1;" id="fontSizeDisplay">Auto</span></div>
-      <div class="size-control">
-        <input type="range" id="fontSizeSlider" min="40" max="140" value="40" oninput="updFontSize()">
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:#333;margin-top:4px;">
-        <span>Auto</span><span>140pt</span>
-      </div>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Font</div>
-      <select class="font-select" id="fontSelect" onchange="updFont()">
-        <option value="Bebas Neue">Bebas Neue</option>
-        <option value="Impact">Impact</option>
-        <option value="Arial">Arial</option>
-        <option value="Helvetica">Helvetica</option>
-      </select>
-    </div>
-
-    <div class="sp-section">
-      <div class="sp-title">Positioning & Outline</div>
-      <div class="pos-btns" id="posBtns">
-        <button class="pos-btn" data-pos="top" onclick="selPos(this)">Top</button>
-        <button class="pos-btn sel" data-pos="bottom" onclick="selPos(this)">Bottom</button>
-      </div>
-    </div>
-
+    <div class="trans-scroll" id="transScroll"></div>
   </div>
 </div>
 
+<!-- Saving overlay -->
+<div class="saving-overlay" id="savingOverlay">
+  <div class="saving-box">
+    <h3>Re-rendering clip...</h3>
+    <p>Applying your changes with FFmpeg</p>
+    <div class="spinner"></div>
+  </div>
+</div>
+
+<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
-const clipId = parseInt(window.location.pathname.split('/').pop());
+// ─── State ───────────────────────────────────────────────────────────────────
+const clipId = location.pathname.split('/').filter(Boolean).pop();
 let clip = null;
-let chunks = [];
-let activeIdx = null;
-let subtitlesOn = true;
+let segments = [];       // [{text, start, end, words:[{word,start,end}]}]
+let trimStart = 0;
+let trimEnd = 0;
+let duration = 0;
+let isDirty = false;
+let isDragging = null;   // 'start' | 'end' | 'seek'
+let dragStartX = 0;
+let dragStartVal = 0;
+let editingSegIdx = null;
+let highlightColor = 'yellow';
+let captionFont = 'Bebas Neue';
+let captionSize = 80;
+let currentSearch = '';
 
-// Style state
-let curPreset = 'bold';
-let curTextColor = 'white';
-let curOutlineColor = 'black';
-let curFont = 'Bebas Neue';
-let curFontSize = 0;
-let curPosition = 'bottom';
+const vid = document.getElementById('vid');
+const trimBar = document.getElementById('trimBar');
 
-async function api(method, path, body) {
-  const opts = { method, headers: {} };
-  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-async function load() {
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function init() {
   try {
-    const data = await api('GET', `/api/clips/${clipId}/chunks`);
-    clip = data.clip;
-    chunks = data.chunks || [];
+    const r = await fetch(`/api/clips/${clipId}`);
+    if (!r.ok) throw new Error('Clip not found');
+    clip = await r.json();
 
-    // Load clip style settings
-    curPreset = clip.caption_preset || 'bold';
-    curTextColor = clip.caption_color || 'white';
-    curOutlineColor = clip.outline_color || 'black';
-    curFont = clip.caption_font || 'Bebas Neue';
-    curFontSize = clip.font_size || 0;
-    curPosition = clip.caption_position || 'bottom';
+    document.getElementById('clipTitle').textContent = clip.title || `Clip ${clipId}`;
+    document.getElementById('backBtn').href = '/';
 
-    // Apply to UI
-    document.getElementById('fontSelect').value = curFont;
-    if (curFontSize > 40) {
-      document.getElementById('fontSizeSlider').value = curFontSize;
-      document.getElementById('fontSizeDisplay').textContent = curFontSize + 'pt';
+    if (clip.score) {
+      const badge = document.getElementById('scoreBadge');
+      badge.textContent = clip.score + '% score';
+      badge.style.display = '';
     }
 
-    // Select active preset
-    document.querySelectorAll('.preset-card').forEach(el => el.classList.toggle('sel', el.dataset.p === curPreset));
-    document.querySelectorAll('#outlineSwatches .swatch').forEach(el => el.classList.toggle('sel', el.dataset.c === curOutlineColor));
-    document.querySelectorAll('#textSwatches .swatch').forEach(el => el.classList.toggle('sel', el.dataset.c === curTextColor));
-    document.querySelectorAll('.pos-btn').forEach(el => el.classList.toggle('sel', el.dataset.pos === curPosition));
+    if (clip.caption_font) {
+      captionFont = clip.caption_font;
+      document.getElementById('fontSel').value = captionFont;
+    }
 
-    // Set video
-    document.getElementById('videoEl').src = `/api/clips/${clipId}/file`;
-    document.getElementById('editorTitle').textContent = clip.title || 'Caption Editor';
+    // Load segments from segments_json
+    if (clip.segments_json) {
+      try {
+        const raw = JSON.parse(clip.segments_json);
+        if (Array.isArray(raw) && raw.length > 0) {
+          segments = raw.map(s => ({
+            text: s.text || '',
+            start: parseFloat(s.start) || 0,
+            end: parseFloat(s.end) || 0,
+            words: Array.isArray(s.words) ? s.words : splitToWords(s.text, s.start, s.end),
+          }));
+        }
+      } catch(e) {}
+    }
 
-    renderSegments();
-  } catch(e) {
-    document.getElementById('segList').innerHTML = `<div class="loading" style="color:#f87171;">Failed to load: ${e.message}</div>`;
-  }
-}
+    // If no word-level segments, build from transcript
+    if (segments.length === 0 && clip.transcript) {
+      segments = buildSegmentsFromTranscript(clip.transcript, clip.start_sec || 0, clip.duration_sec || 60);
+    }
 
-function renderSegments() {
-  document.getElementById('segCount').textContent = chunks.length + ' segments';
-  if (!chunks.length) {
-    document.getElementById('segList').innerHTML = '<div class="loading">No captions found for this clip.</div>';
-    return;
-  }
-
-  document.getElementById('segList').innerHTML = chunks.map((c, i) => `
-    <div class="seg-item ${activeIdx === i ? 'active' : ''}" id="seg${i}" onclick="selectSeg(${i})">
-      <div class="seg-time">${fmtTime(c.start)} — ${fmtTime(c.end)}</div>
-      <div class="seg-text">${c.text}</div>
-      <div class="seg-edit-wrap">
-        <textarea class="seg-input" id="input${i}" rows="2" onkeydown="handleKey(event,${i})">${c.text}</textarea>
-        <div class="seg-actions">
-          <button class="seg-btn" onclick="event.stopPropagation();cancelEdit(${i})">Cancel</button>
-          <button class="seg-btn primary" onclick="event.stopPropagation();applyEdit(${i})">Apply</button>
-        </div>
-      </div>
-    </div>
-  `).join('');
-
-  if (activeIdx !== null) {
-    const el = document.getElementById(`seg${activeIdx}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-}
-
-function selectSeg(i) {
-  activeIdx = i;
-  renderSegments();
-  // Seek video to segment start
-  const video = document.getElementById('videoEl');
-  video.currentTime = chunks[i].start;
-  // Focus the textarea
-  setTimeout(() => {
-    const inp = document.getElementById(`input${i}`);
-    if (inp) { inp.focus(); inp.select(); }
-  }, 50);
-}
-
-function handleKey(e, i) {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyEdit(i); }
-  if (e.key === 'Escape') cancelEdit(i);
-}
-
-function applyEdit(i) {
-  const inp = document.getElementById(`input${i}`);
-  if (!inp) return;
-  chunks[i].text = inp.value.trim().toUpperCase();
-  activeIdx = null;
-  renderSegments();
-  toast('Caption updated — hit Save & Re-Process when done', 'info');
-}
-
-function cancelEdit(i) {
-  const inp = document.getElementById(`input${i}`);
-  if (inp) inp.value = chunks[i].text;
-  activeIdx = null;
-  renderSegments();
-}
-
-async function saveAndReburn() {
-  const btn = document.getElementById('saveBtn');
-  btn.disabled = true; btn.textContent = 'Processing...';
-  try {
-    await api('POST', `/api/clips/${clipId}/chunks`, {
-      chunks,
-      caption_font: curFont,
-      caption_color: curTextColor,
-      outline_color: curOutlineColor,
-      caption_preset: curPreset,
-      font_size: curFontSize || 0,
-      caption_position: curPosition,
+    // Load video
+    vid.src = `/api/clips/${clipId}/file`;
+    vid.addEventListener('loadedmetadata', onVideoReady);
+    vid.addEventListener('timeupdate', onTimeUpdate);
+    vid.addEventListener('ended', onVideoEnded);
+    vid.addEventListener('play', () => {
+      document.getElementById('playBtn').textContent = '⏸';
+      document.getElementById('playIcon').textContent = '⏸';
     });
-    toast('Captions saved and re-burned!', 'success');
-    setTimeout(() => goBack(), 1500);
+    vid.addEventListener('pause', () => {
+      document.getElementById('playBtn').textContent = '▶';
+      document.getElementById('playIcon').textContent = '▶';
+    });
+
+    document.getElementById('reprocessBtn').style.display = '';
+    setStatus('Click any word to jump there. Drag trim handles to cut the clip.');
+
   } catch(e) {
-    toast('Failed: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Save & Re-Process';
+    setStatus('Error: ' + e.message);
+    toast('Could not load clip', 'error');
   }
 }
 
-function toggleSubtitles() {
-  subtitlesOn = !subtitlesOn;
-  document.getElementById('subtitleToggle').classList.toggle('on', subtitlesOn);
+function onVideoReady() {
+  duration = vid.duration || clip.duration_sec || 60;
+  trimStart = 0;
+  trimEnd = duration;
+  updateTrimUI();
+  renderTranscript();
 }
 
-function selPreset(el) {
-  curPreset = el.dataset.p;
-  document.querySelectorAll('.preset-card').forEach(b => b.classList.remove('sel'));
-  el.classList.add('sel');
+// ─── Build segments from plain transcript ─────────────────────────────────────
+function buildSegmentsFromTranscript(transcript, startOffset, totalDur) {
+  if (!transcript) return [];
+  const words = transcript.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const wps = totalDur > 0 ? words.length / totalDur : 2;
+  const chunkSize = 6;
+  const segs = [];
+  for (let i = 0; i < words.length; i += chunkSize) {
+    const chunk = words.slice(i, i + chunkSize);
+    const ss = i / wps;
+    const se = Math.min((i + chunkSize) / wps, totalDur);
+    segs.push({
+      text: chunk.join(' '),
+      start: ss,
+      end: se,
+      words: splitToWords(chunk.join(' '), ss, se),
+    });
+  }
+  return segs;
 }
 
-function selTextColor(el) {
-  curTextColor = el.dataset.c;
-  document.querySelectorAll('#textSwatches .swatch').forEach(d => d.classList.remove('sel'));
-  el.classList.add('sel');
+function splitToWords(text, start, end) {
+  if (!text) return [];
+  const words = text.split(/\s+/).filter(Boolean);
+  const dur = (end - start) / (words.length || 1);
+  return words.map((w, i) => ({
+    word: w,
+    start: start + i * dur,
+    end: start + (i + 1) * dur,
+  }));
 }
 
-function selOutline(el) {
-  curOutlineColor = el.dataset.c;
-  document.querySelectorAll('#outlineSwatches .swatch').forEach(d => d.classList.remove('sel'));
-  el.classList.add('sel');
+// ─── Video controls ───────────────────────────────────────────────────────────
+function togglePlay() {
+  if (vid.paused) {
+    if (vid.currentTime >= trimEnd) vid.currentTime = trimStart;
+    vid.play();
+  } else {
+    vid.pause();
+  }
 }
 
-function selPos(el) {
-  curPosition = el.dataset.pos;
-  document.querySelectorAll('.pos-btn').forEach(b => b.classList.remove('sel'));
-  el.classList.add('sel');
+function skipTo(t) {
+  vid.currentTime = Math.max(trimStart, Math.min(trimEnd, t));
+  updateTrimUI();
 }
 
-function updFontSize() {
-  const v = parseInt(document.getElementById('fontSizeSlider').value);
-  curFontSize = v === 40 ? 0 : v;
-  document.getElementById('fontSizeDisplay').textContent = v === 40 ? 'Auto' : v + 'pt';
+function setSpeed(v) { vid.playbackRate = parseFloat(v); }
+function setVol(v) { vid.volume = parseFloat(v); }
+
+function onVideoEnded() {
+  vid.currentTime = trimStart;
 }
 
-function updFont() {
-  curFont = document.getElementById('fontSelect').value;
+function onTimeUpdate() {
+  if (vid.currentTime > trimEnd) { vid.pause(); vid.currentTime = trimEnd; }
+  if (vid.currentTime < trimStart) vid.currentTime = trimStart;
+  updateTrimUI();
+  highlightCurrentWord();
+}
+
+// ─── Trim bar ─────────────────────────────────────────────────────────────────
+function updateTrimUI() {
+  if (!duration) return;
+  const pct = t => (t / duration) * 100;
+  const curPct = pct(vid.currentTime || 0);
+  const startPct = pct(trimStart);
+  const endPct = pct(trimEnd);
+
+  document.getElementById('trimProgress').style.left = startPct + '%';
+  document.getElementById('trimProgress').style.width = (endPct - startPct) + '%';
+  document.getElementById('trimPlayhead').style.left = curPct + '%';
+  document.getElementById('handleStart').style.left = startPct + '%';
+  document.getElementById('handleEnd').style.left = 'calc(' + endPct + '% - 10px)';
+
+  document.getElementById('trimStartLabel').textContent = fmtTime(trimStart);
+  document.getElementById('trimEndLabel').textContent = fmtTime(trimEnd);
+  document.getElementById('trimCurrentLabel').textContent = fmtTime(vid.currentTime || 0);
+
+  // Update segment dimming
+  document.querySelectorAll('.seg').forEach(el => {
+    const s = parseFloat(el.dataset.start);
+    const e = parseFloat(el.dataset.end);
+    el.classList.toggle('trimmed', e < trimStart || s > trimEnd);
+  });
+  document.querySelectorAll('.word').forEach(el => {
+    const t = parseFloat(el.dataset.t);
+    el.classList.toggle('out-trim', t < trimStart || t > trimEnd);
+    el.classList.toggle('in-trim', t >= trimStart && t <= trimEnd);
+  });
 }
 
 function fmtTime(s) {
   const m = Math.floor(s / 60);
-  const sec = (s % 60).toFixed(2).padStart(5, '0');
-  return `${String(m).padStart(2,'0')}:${sec}`;
+  const sec = Math.floor(s % 60);
+  const ms = Math.floor((s % 1) * 10);
+  return `${m}:${sec.toString().padStart(2,'0')}.${ms}`;
 }
 
-function goBack() {
-  window.location.href = '/';
+// Trim handle drag
+trimBar.addEventListener('mousedown', startDrag);
+trimBar.addEventListener('touchstart', startDrag, {passive:true});
+
+function startDrag(e) {
+  const rect = trimBar.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const pct = (clientX - rect.left) / rect.width;
+  const t = pct * duration;
+
+  const startHandle = document.getElementById('handleStart');
+  const endHandle = document.getElementById('handleEnd');
+  const startRect = startHandle.getBoundingClientRect();
+  const endRect = endHandle.getBoundingClientRect();
+
+  const nearStart = Math.abs(clientX - startRect.left - 5) < 20;
+  const nearEnd = Math.abs(clientX - endRect.left - 5) < 20;
+
+  if (nearStart) isDragging = 'start';
+  else if (nearEnd) isDragging = 'end';
+  else { isDragging = 'seek'; vid.currentTime = Math.max(trimStart, Math.min(trimEnd, t)); }
+
+  dragStartX = clientX;
+  dragStartVal = isDragging === 'start' ? trimStart : isDragging === 'end' ? trimEnd : vid.currentTime;
+
+  e.preventDefault && e.preventDefault();
 }
 
-function toast(msg, type = 'info') {
+document.addEventListener('mousemove', onDrag);
+document.addEventListener('touchmove', onDrag, {passive:false});
+document.addEventListener('mouseup', stopDrag);
+document.addEventListener('touchend', stopDrag);
+
+function onDrag(e) {
+  if (!isDragging) return;
+  e.preventDefault && e.preventDefault();
+  const rect = trimBar.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const t = pct * duration;
+
+  if (isDragging === 'start') {
+    trimStart = Math.max(0, Math.min(t, trimEnd - 0.5));
+    if (vid.currentTime < trimStart) vid.currentTime = trimStart;
+    markDirty();
+  } else if (isDragging === 'end') {
+    trimEnd = Math.max(trimStart + 0.5, Math.min(t, duration));
+    if (vid.currentTime > trimEnd) vid.currentTime = trimEnd;
+    markDirty();
+  } else {
+    vid.currentTime = Math.max(trimStart, Math.min(trimEnd, t));
+  }
+  updateTrimUI();
+}
+
+function stopDrag() { isDragging = null; }
+
+// ─── Transcript render ────────────────────────────────────────────────────────
+function renderTranscript() {
+  const container = document.getElementById('transScroll');
+  if (!segments.length) {
+    container.innerHTML = `<div class="empty-trans">
+      <div style="font-size:32px;">📝</div>
+      <div style="font-size:13px;">No transcript available</div>
+      <div style="font-size:11px;color:#333;margin-top:4px;">Process this video with captions enabled to see the script here</div>
+    </div>`;
+    return;
+  }
+
+  const q = currentSearch.toLowerCase();
+  container.innerHTML = segments.map((seg, si) => {
+    const inRange = seg.end >= trimStart && seg.start <= trimEnd;
+    const wordsHtml = seg.words.map((w, wi) => {
+      const hidden = q && !w.word.toLowerCase().includes(q);
+      return `<span class="word in-trim"
+        data-si="${si}" data-wi="${wi}" data-t="${w.start}"
+        style="${hidden ? 'opacity:0.2' : ''}"
+        onclick="wordClick(${si},${wi},${w.start})"
+        ondblclick="startWordEdit(${si},${wi})"
+        title="Double-click to edit"
+      >${w.word}</span>`;
+    }).join(' ');
+
+    return `<div class="seg ${inRange ? '' : 'trimmed'}" id="seg${si}"
+      data-start="${seg.start}" data-end="${seg.end}"
+      onclick="segClick(${si},${seg.start})">
+      <div class="seg-time">
+        <span class="${inRange ? 'in-range' : ''}">${fmtTime(seg.start)}</span>
+        <span style="color:#333">→</span>
+        <span>${fmtTime(seg.end)}</span>
+        ${inRange ? '<span style="color:#f97316;margin-left:auto;">● in clip</span>' : ''}
+      </div>
+      <div class="seg-words" id="words${si}">${wordsHtml}</div>
+      <div id="editRow${si}" style="display:none;" class="seg-edit-row">
+        <input class="seg-edit-input" id="editIn${si}" type="text" value="${seg.text}"
+          onkeydown="if(event.key==='Enter')applySegEdit(${si});if(event.key==='Escape')cancelSegEdit(${si})">
+        <button class="seg-edit-btn btn-apply" onclick="applySegEdit(${si})">✓ Apply</button>
+        <button class="seg-edit-btn btn-cancel-edit" onclick="cancelSegEdit(${si})" style="border:1px solid #333;">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Word interaction ─────────────────────────────────────────────────────────
+function wordClick(si, wi, t) {
+  vid.currentTime = Math.max(trimStart, Math.min(trimEnd, t));
+  vid.pause();
+  setStatus(`Jumped to ${fmtTime(t)} — double-click any word to edit it`);
+  // Highlight segment
+  document.querySelectorAll('.seg').forEach(e => e.classList.remove('active'));
+  document.getElementById('seg' + si)?.classList.add('active');
+  updateTrimUI();
+}
+
+function segClick(si, t) {
+  vid.currentTime = Math.max(trimStart, Math.min(trimEnd, t));
+}
+
+function highlightCurrentWord() {
+  document.querySelectorAll('.word.playing').forEach(e => e.classList.remove('playing'));
+  const ct = vid.currentTime;
+  for (let si = 0; si < segments.length; si++) {
+    const seg = segments[si];
+    if (ct >= seg.start && ct <= seg.end) {
+      // Highlight active segment
+      document.querySelectorAll('.seg').forEach(e => e.classList.remove('active'));
+      document.getElementById('seg' + si)?.classList.add('active');
+      // Scroll into view
+      const segEl = document.getElementById('seg' + si);
+      if (segEl) {
+        const scroll = document.getElementById('transScroll');
+        const rect = segEl.getBoundingClientRect();
+        const scrollRect = scroll.getBoundingClientRect();
+        if (rect.top < scrollRect.top || rect.bottom > scrollRect.bottom) {
+          segEl.scrollIntoView({behavior:'smooth', block:'nearest'});
+        }
+      }
+      // Highlight current word
+      for (let wi = 0; wi < seg.words.length; wi++) {
+        const w = seg.words[wi];
+        if (ct >= w.start && ct <= w.end) {
+          const wEl = document.querySelector(`[data-si="${si}"][data-wi="${wi}"]`);
+          if (wEl) wEl.classList.add('playing');
+          break;
+        }
+      }
+      break;
+    }
+  }
+}
+
+// ─── Word editing ─────────────────────────────────────────────────────────────
+function startWordEdit(si, wi) {
+  vid.pause();
+  editingSegIdx = si;
+  const seg = segments[si];
+  const editRow = document.getElementById('editRow' + si);
+  const input = document.getElementById('editIn' + si);
+  input.value = seg.words.map(w => w.word).join(' ');
+  editRow.style.display = 'flex';
+  input.focus();
+  input.select();
+  setStatus('Edit the text then click Apply — timing adjusts automatically');
+}
+
+function applySegEdit(si) {
+  const input = document.getElementById('editIn' + si);
+  const newText = input.value.trim();
+  if (!newText) return;
+
+  const seg = segments[si];
+  const newWords = newText.split(/\s+/).filter(Boolean);
+  const dur = seg.end - seg.start;
+  const wDur = dur / newWords.length;
+  seg.text = newText;
+  seg.words = newWords.map((w, i) => ({
+    word: w,
+    start: seg.start + i * wDur,
+    end: seg.start + (i + 1) * wDur,
+  }));
+
+  cancelSegEdit(si);
+  renderTranscript();
+  markDirty();
+  toast('Caption updated', 'success');
+}
+
+function cancelSegEdit(si) {
+  const editRow = document.getElementById('editRow' + si);
+  if (editRow) editRow.style.display = 'none';
+  editingSegIdx = null;
+}
+
+function editAllMode() {
+  // Open all segments for editing one by one
+  if (segments.length > 0) startWordEdit(0, 0);
+}
+
+// ─── Search ───────────────────────────────────────────────────────────────────
+function filterTranscript(q) {
+  currentSearch = q;
+  renderTranscript();
+}
+
+// ─── Style controls ───────────────────────────────────────────────────────────
+function selHL(el) {
+  highlightColor = el.dataset.c;
+  document.querySelectorAll('#hlColors .cpick').forEach(e => e.classList.remove('sel'));
+  el.classList.add('sel');
+  markDirty();
+}
+
+function updSize(v) {
+  captionSize = parseInt(v);
+  document.getElementById('sizeVal').textContent = v;
+  markDirty();
+}
+
+document.getElementById('fontSel').addEventListener('change', function() {
+  captionFont = this.value;
+  markDirty();
+});
+
+// ─── Dirty tracking ───────────────────────────────────────────────────────────
+function markDirty() {
+  if (!isDirty) {
+    isDirty = true;
+    document.getElementById('saveBtn').disabled = false;
+  }
+}
+
+// ─── Save changes ─────────────────────────────────────────────────────────────
+async function saveChanges() {
+  if (!isDirty) return;
+  const overlay = document.getElementById('savingOverlay');
+  overlay.style.display = 'flex';
+  document.getElementById('saveBtn').disabled = true;
+
+  try {
+    // Build updated transcript from segments
+    const newTranscript = segments.map(s => s.text).join(' ');
+    const newSegmentsJson = JSON.stringify(segments);
+
+    // Save metadata to DB
+    await fetch(`/api/clips/${clipId}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        transcript: newTranscript,
+        title: clip.title,
+      })
+    });
+
+    // Send reprocess request with trim + caption style
+    const fd = new FormData();
+    fd.append('clip_id', clipId);
+    fd.append('trim_start', trimStart);
+    fd.append('trim_end', trimEnd);
+    fd.append('caption_font', captionFont);
+    fd.append('highlight_color', highlightColor);
+    fd.append('font_size', captionSize);
+    fd.append('segments_json', newSegmentsJson);
+
+    const r = await fetch(`/api/clips/${clipId}/reprocess`, {method:'POST', body:fd});
+
+    if (r.ok) {
+      const data = await r.json();
+      // Reload video
+      vid.src = `/api/clips/${clipId}/file?t=${Date.now()}`;
+      vid.load();
+      isDirty = false;
+      document.getElementById('saveBtn').disabled = false;
+      toast('Clip updated!', 'success');
+      setStatus('Changes saved — video re-rendered with your edits');
+    } else {
+      // Fallback — just save the transcript without re-rendering
+      isDirty = false;
+      document.getElementById('saveBtn').disabled = false;
+      toast('Metadata saved (re-render not available)', 'info');
+      setStatus('Caption text saved. Re-render requires Railway deployment.');
+    }
+  } catch(e) {
+    toast('Save failed: ' + e.message, 'error');
+    document.getElementById('saveBtn').disabled = false;
+    setStatus('Save failed — check connection');
+  } finally {
+    overlay.style.display = 'none';
+  }
+}
+
+// ─── Reprocess ────────────────────────────────────────────────────────────────
+function reprocess() {
+  isDirty = true;
+  saveChanges();
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+function toast(msg, type='info') {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = `toast ${type} show`;
   setTimeout(() => t.className = 'toast', 3000);
 }
 
-load();
+// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowLeft') { e.preventDefault(); vid.currentTime = Math.max(trimStart, vid.currentTime - (e.shiftKey ? 5 : 1)); }
+  if (e.code === 'ArrowRight') { e.preventDefault(); vid.currentTime = Math.min(trimEnd, vid.currentTime + (e.shiftKey ? 5 : 1)); }
+  if (e.code === 'KeyS' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveChanges(); }
+  if (e.code === 'BracketLeft') { trimStart = vid.currentTime; updateTrimUI(); markDirty(); toast('Trim start set', 'info'); }
+  if (e.code === 'BracketRight') { trimEnd = vid.currentTime; updateTrimUI(); markDirty(); toast('Trim end set', 'info'); }
+});
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+init();
 </script>
 </body>
 </html>
