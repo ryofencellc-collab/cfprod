@@ -1,11 +1,9 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
-aiofiles==23.2.1
-requests==2.31.0
-numpy
-tqdm
-tiktoken
-more-itertools
-Pillow
-yt-dlp
+requests>=2.31,<3
+numpy>=1.26,<3
+opencv-python-headless==5.0.0.93
+faster-whisper==1.2.1
+piper-tts==1.8.0
+tzdata

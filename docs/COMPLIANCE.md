@@ -79,13 +79,15 @@ AI-generated realistic scenes/people need the AI label — not applicable to nar
 - **Voice**: Piper `en_US-libritts-high` — trained from scratch on LibriTTS (CC BY 4.0) → commercial use OK with attribution.
   **Do not use** `lessac`, `amy`, `ryan`, `hfc_*` or any voice fine-tuned from lessac (non-commercial datasets).
   Attribution line in descriptions: "Narration voice: Piper / LibriTTS (CC BY 4.0)."
+  The Piper engine itself (piper-tts, GPL-3.0) runs only on our server; we don't distribute it, and the
+  audio it produces isn't covered by the GPL.
 - **Music**: only CC0 or explicitly commercial-OK tracks dropped into `music/`, each with its license file. No music is better than unlicensed music.
 
 ## 5. Guardrails the autopilot enforces
 
 1. License gate — reject any source not matching section 1.
 2. Originality gate — reject a video if narration is missing, too short, or the script repeats a recent one.
-3. Volume caps — default 1 long-form/day + 2 Shorts/day + 1 TikTok draft/day, randomized posting times.
+3. Volume caps — default 2 long-form/week + 2 Shorts/day + 1 TikTok draft/day, randomized posting times inside a posting window.
 4. Fact safety — scripts are written only from the item's own archive description; no invented quotes, names or numbers.
 5. Sensitive-topic filter — no sensational framing of deaths, disasters or atrocities.
 6. Kill switch — one toggle stops all generation and posting.

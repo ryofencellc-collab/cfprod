@@ -1,12 +1,12 @@
 """
-ClipForge v6.0 — Core Engine
-Upgraded pipeline:
+ClipForge — Core Engine
+Pipeline:
   Step 1: Download (proxy + cookies support)
-  Step 2: Transcribe (faster-whisper local, Groq API fallback)
-  Step 3: Detect Moments (AI-powered via Groq/OpenAI/Claude — replaces keyword scoring)
-  Step 4: Cut Clips (face-tracking crop via OpenCV)
+  Step 2: Transcribe (faster-whisper local)
+  Step 3: Detect Moments (AI via Groq/OpenAI/Claude, keyword fallback)
+  Step 4: Cut Clips (face-tracking crop via OpenCV YuNet, center-crop fallback)
   Step 5: Burn Captions (karaoke style)
-  Step 6: Hook Generation (AI text + TTS intro)
+  Step 6: Hook text overlay
   Step 7: Apply Watermark (text-based, no PNG)
   Split Mode: Sequential parts for archive content
 """
@@ -17,16 +17,12 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from config import CLIPS_DIR, UPLOADS_DIR, WATERMARKS_DIR, STATIC_DIR, VERSION
 from db.database import log, set_step
+from core.reframe import face_track_filter
 
-VERSION = "6.0"
-CLIPS_DIR    = Path(__file__).parent.parent / "clips"
-UPLOADS_DIR  = Path(__file__).parent.parent / "uploads"
-WATERMARKS_DIR = Path(__file__).parent.parent / "watermarks"
-STATIC_DIR   = Path(__file__).parent.parent / "static"
-
-for d in [CLIPS_DIR, UPLOADS_DIR, WATERMARKS_DIR]:
-    d.mkdir(exist_ok=True)
+WATERMARK_FONT = "Archivo Black"
+HOOK_FONT = "Anton"
 
 # ─── Constants ────────────────────────────────────────────────────────────
 
@@ -103,7 +99,7 @@ def step1_download(url: str, job_id: int) -> str:
     set_step(job_id, "Downloading video...", 10)
     log(job_id, f"Step 1 — Downloading: {url}")
     out_dir = UPLOADS_DIR / str(job_id)
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_path = str(out_dir / "source.%(ext)s")
 
     # Write cookies from environment variable if set
@@ -517,13 +513,85 @@ def _fallback_moments(duration: float, num_clips: int) -> list:
 
 # ─── STEP 4: Cut Clips ────────────────────────────────────────────────────
 
+def _cut_cmd(video_path: str, start: float, duration: float, vf: str, out_path: str) -> list:
+    return [
+        "ffmpeg", "-y",
+        "-ss", str(start),
+        "-i", video_path,
+        "-t", str(duration),
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-c:a", "aac", "-b:a", "128k",
+        "-movflags", "+faststart",
+        "-loglevel", "error",
+        out_path,
+    ]
+
+
+def cut_clip(video_path: str, start: float, duration: float, fmt: str, out_path: str,
+             job_id: int = 0, face_track: bool = True, zoom_punch: bool = False) -> bool:
+    """Cut one clip, trying face-tracked crop → zoom → plain crop, best first."""
+    crop = get_crop(fmt)
+    base_vfs = []
+    if face_track and fmt in ("9:16", "1:1"):
+        tracked = face_track_filter(video_path, start, duration, fmt)
+        if tracked:
+            base_vfs.append(tracked)
+            if job_id:
+                log(job_id, "Face tracking: following the speaker")
+    base_vfs.append(crop)
+
+    attempts = []
+    for vf in base_vfs:
+        if zoom_punch:
+            res = {"9:16": "1080x1920", "16:9": "1920x1080", "1:1": "1080x1080"}.get(fmt, "1080x1920")
+            attempts.append(
+                f"{vf},zoompan=z='if(lte(on,9),1.0+on*0.004,1.04)':"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={res}:fps=30"
+            )
+        attempts.append(vf)
+
+    last_err = ""
+    for vf in attempts:
+        r = subprocess.run(_cut_cmd(video_path, start, duration, vf, out_path), capture_output=True)
+        if r.returncode == 0 and os.path.exists(out_path):
+            return True
+        last_err = r.stderr.decode()[:200]
+        if job_id:
+            log(job_id, f"Cut attempt failed ({last_err[:80]}) — trying simpler filter", "warn")
+    if job_id:
+        log(job_id, f"Clip cut failed: {last_err}", "error")
+    return False
+
+
+def relative_segments(segments: list, clip_start: float, clip_end: float) -> list:
+    """Segments overlapping [clip_start, clip_end], re-timed to start at 0, with words."""
+    out = []
+    dur = clip_end - clip_start
+    for seg in segments:
+        if seg["end"] < clip_start or seg["start"] > clip_end:
+            continue
+        words = []
+        for w in seg.get("words", []):
+            ws, we = w["start"] - clip_start, w["end"] - clip_start
+            if we < 0 or ws > dur:
+                continue
+            words.append({"word": w["word"], "start": round(max(0.0, ws), 3), "end": round(min(dur, we), 3)})
+        out.append({
+            "text": seg.get("text", ""),
+            "start": round(max(0.0, seg["start"] - clip_start), 3),
+            "end": round(min(dur, seg["end"] - clip_start), 3),
+            "words": words,
+        })
+    return out
+
+
 def step4_cut_clips(video_path: str, moments: list, job_id: int,
-                    fmt: str, zoom_punch: bool = False) -> list:
+                    fmt: str, zoom_punch: bool = False, face_track: bool = True) -> list:
     set_step(job_id, "Cutting clips...", 78)
     log(job_id, f"Step 4 — Cutting {len(moments)} clips in {fmt} format...")
     out_dir = CLIPS_DIR / str(job_id)
-    out_dir.mkdir(exist_ok=True)
-    crop = get_crop(fmt)
+    out_dir.mkdir(parents=True, exist_ok=True)
     results = []
 
     for i, m in enumerate(moments):
@@ -531,37 +599,8 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int,
         duration = m["end"] - m["start"]
         log(job_id, f"Cutting clip {i+1} at {int(m['start'])}s — {int(duration)}s (score: {m['score']})")
 
-        vf = crop
-        if zoom_punch:
-            res = {"9:16": "1080x1920", "16:9": "1920x1080", "1:1": "1080x1080"}.get(fmt, "1080x1920")
-            zoom_filter = (
-                f"zoompan=z='if(lte(on,9),1.0+on*0.004,1.04)':"
-                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={res}:fps=30"
-            )
-            vf = f"{crop},{zoom_filter}"
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(m["start"]),
-            "-i", video_path,
-            "-t", str(duration),
-            "-vf", vf,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-loglevel", "error",
-            clip_path
-        ]
-        r = subprocess.run(cmd, capture_output=True)
-
-        if r.returncode != 0 and zoom_punch:
-            # Retry without zoom
-            log(job_id, f"Zoom filter failed on clip {i+1} — retrying without zoom", "warn")
-            cmd[-7] = crop  # replace vf
-            r = subprocess.run(cmd, capture_output=True)
-
-        if r.returncode != 0:
-            log(job_id, f"Clip {i+1} cut failed: {r.stderr.decode()[:200]}", "error")
+        if not cut_clip(video_path, m["start"], duration, fmt, clip_path,
+                        job_id=job_id, face_track=face_track, zoom_punch=zoom_punch):
             continue
 
         results.append({
@@ -583,75 +622,127 @@ def step4_cut_clips(video_path: str, moments: list, job_id: int,
 
 # ─── STEP 5: Burn Captions ───────────────────────────────────────────────
 
+def build_hook_ass(text: str, fmt: str, duration: float = 2.8, font: str = None,
+                   y_frac: float = 0.42) -> str:
+    """Hook text as an ASS subtitle — wraps and centers properly, unlike drawtext."""
+    res_x, res_y = PLAY_RES.get(fmt, (1080, 1920))
+    size = {"9:16": 104, "1:1": 88, "16:9": 72}.get(fmt, 88)
+    margin = int(res_x * 0.08)
+    clean = re.sub(r"[{}\\]", "", text or "").strip().upper()
+    if not clean:
+        return None
+    end = f"0:00:{duration:05.2f}"
+    return f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {res_x}
+PlayResY: {res_y}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Hook,{font or HOOK_FONT},{size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,6,3,5,{margin},{margin},0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 1,0:00:00.00,{end},Hook,,0,0,0,,{{\\pos({res_x // 2},{int(res_y * y_frac)})\\fad(150,250)}}{clean}
+"""
+
+
+def watermark_filter(text_file: str, font: str = WATERMARK_FONT) -> str:
+    return (
+        f"drawtext=textfile='{text_file}':font='{font}':fontsize=38:"
+        f"fontcolor=white:x=w-tw-25:y=25:"
+        f"shadowx=2:shadowy=2:shadowcolor=black@1.0:"
+        f"borderw=2:bordercolor=black@0.9"
+    )
+
+
+def _encode_with_filters(in_path: str, out_path: str, filters: list) -> bool:
+    r = subprocess.run([
+        "ffmpeg", "-y", "-i", in_path,
+        "-vf", ",".join(filters),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:a", "copy", "-movflags", "+faststart",
+        "-loglevel", "error", out_path
+    ], capture_output=True)
+    return r.returncode == 0 and os.path.exists(out_path)
+
+
 def step5_burn_captions(clips: list, video_path: str, all_segments: list,
                          job_id: int, font: str = "Bebas Neue",
                          text_color: str = "white", outline_color: str = "black",
                          preset: str = "karaoke", font_size: int = None,
-                         position: str = "bottom") -> list:
+                         position: str = "bottom", captions: bool = True,
+                         hooks: bool = False, watermark_text: str = None,
+                         highlight_color: str = "yellow") -> list:
+    """Finish each clip in ONE encode: captions + hook + watermark.
+    If the combined pass fails, retry with fewer layers so a clip is never lost."""
     set_step(job_id, "Burning captions...", 86)
-    log(job_id, f"Step 5 — Captions (preset:{preset} font:{font})")
+    log(job_id, f"Step 5 — Finishing clips (captions:{captions} hooks:{hooks} "
+                f"watermark:{bool(watermark_text)} font:{font})")
     results = []
 
     for i, clip in enumerate(clips):
         raw_path = clip["clip_path"]
         stem = raw_path.rsplit(".", 1)[0]
-        cap_path = stem + "_cap.mp4"
         final_path = stem + "_final.mp4"
         ass_path = stem + ".ass"
+        hook_path = stem + "_hook.ass"
+        wm_path = stem + "_wm.txt"
         thumb_path = stem + "_thumb.jpg"
         fmt = clip["format"]
 
         buf_start = max(0, clip["start"] - 5)
         buf_end = clip["end"] + 5
         buf_segs = [s for s in all_segments if s["start"] >= buf_start and s["end"] <= buf_end]
+        clip["segments_json"] = json.dumps(relative_segments(buf_segs, clip["start"], clip["end"]))
 
-        chunks = split_segments_into_chunks(buf_segs, clip["start"], clip["end"], fmt)
-        clip["segments_json"] = json.dumps(chunks)
-
-        if preset == "karaoke":
-            ass_content = build_ass_karaoke(
-                buf_segs, clip["start"], clip["end"],
-                fmt, font, outline_color, font_size, position
-            )
-        else:
-            ass_content = build_ass(buf_segs, clip["start"], clip["end"],
-                                    fmt, font, text_color, outline_color,
-                                    preset, font_size, position)
-
-        work_path = raw_path
-
-        if ass_content:
-            with open(ass_path, "w", encoding="utf-8") as f:
-                f.write(ass_content)
-
-            r = subprocess.run([
-                "ffmpeg", "-y", "-i", raw_path,
-                "-vf", f"ass={ass_path}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-                "-c:a", "copy", "-movflags", "+faststart",
-                "-loglevel", "error", cap_path
-            ], capture_output=True)
-
-            if r.returncode == 0 and os.path.exists(cap_path):
-                log(job_id, f"Captions burned on clip {i+1}")
-                if os.path.exists(raw_path): os.remove(raw_path)
-                if os.path.exists(ass_path): os.remove(ass_path)
-                work_path = cap_path
+        layers = []  # (name, filter) in burn order
+        if captions:
+            if preset == "karaoke":
+                ass_content = build_ass_karaoke(buf_segs, clip["start"], clip["end"], fmt, font,
+                                                outline_color, font_size, position, highlight_color)
             else:
-                err = r.stderr.decode()[:150]
-                log(job_id, f"Caption burn failed clip {i+1}: {err} — using raw", "warn")
-                if os.path.exists(ass_path): os.remove(ass_path)
-        else:
-            log(job_id, f"No transcript for clip {i+1} — skipping captions", "warn")
+                ass_content = build_ass(buf_segs, clip["start"], clip["end"], fmt, font, text_color,
+                                        outline_color, preset, font_size, position)
+            if ass_content:
+                with open(ass_path, "w", encoding="utf-8") as f:
+                    f.write(ass_content)
+                layers.append(("captions", f"ass='{ass_path}'"))
+            else:
+                log(job_id, f"No transcript for clip {i+1} — no captions", "warn")
+        if hooks:
+            hook_text = clip.get("hook", "").strip() or _extract_hook_from_transcript(clip.get("transcript", ""))
+            hook_ass = build_hook_ass(hook_text, fmt) if hook_text else None
+            if hook_ass:
+                with open(hook_path, "w", encoding="utf-8") as f:
+                    f.write(hook_ass)
+                layers.append(("hook", f"ass='{hook_path}'"))
+        if watermark_text:
+            with open(wm_path, "w", encoding="utf-8") as f:
+                f.write(watermark_text)
+            layers.append(("watermark", watermark_filter(wm_path)))
 
-        if os.path.exists(work_path):
-            if work_path != final_path:
-                os.rename(work_path, final_path)
-            clip["clip_path"] = final_path
-        else:
-            log(job_id, f"Clip {i+1} file missing after captions", "error")
-            continue
+        done = not layers
+        # Try all layers, then drop the least important ones until it works.
+        for keep in range(len(layers), 0, -1):
+            if _encode_with_filters(raw_path, final_path, [f for _, f in layers[:keep]]):
+                if keep < len(layers):
+                    log(job_id, f"Clip {i+1}: skipped {', '.join(n for n, _ in layers[keep:])} (render error)", "warn")
+                os.remove(raw_path)
+                done = True
+                break
+        if not layers:
+            os.rename(raw_path, final_path)
+        elif not done:
+            log(job_id, f"Clip {i+1}: overlays failed — keeping plain cut", "warn")
+            os.rename(raw_path, final_path)
+        for tmp in (ass_path, hook_path, wm_path):
+            if os.path.exists(tmp):
+                os.remove(tmp)
 
+        clip["clip_path"] = final_path
         subprocess.run([
             "ffmpeg", "-y", "-ss", "2", "-i", final_path,
             "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
@@ -659,11 +750,11 @@ def step5_burn_captions(clips: list, video_path: str, all_segments: list,
         clip["thumbnail_path"] = thumb_path if os.path.exists(thumb_path) else None
 
         results.append(clip)
-        pct = 86 + int((i + 1) / len(clips) * 5)
-        set_step(job_id, f"Captions {i+1}/{len(clips)}", pct)
+        pct = 86 + int((i + 1) / len(clips) * 12)
+        set_step(job_id, f"Finished {i+1}/{len(clips)}", pct)
 
     log(job_id, "Step 5 complete")
-    set_step(job_id, "Captions complete", 91)
+    set_step(job_id, "Captions complete", 98)
     return results
 
 
@@ -715,35 +806,17 @@ def _extract_hook_from_transcript(transcript: str) -> str:
 
 
 def _burn_hook_text(video_path: str, hook_text: str, fmt: str, job_id: int) -> str:
-    """
-    Burn hook text overlay for first 2.5 seconds of clip.
-    Large centered text — like TikTok hooks.
-    No TTS required — text only overlay.
-    """
+    """Burn a wrapped, centered hook for the first ~2.8 seconds."""
     out_path = video_path.rsplit(".", 1)[0] + "_hooked.mp4"
-    res_x, res_y = PLAY_RES.get(fmt, (1080, 1920))
-    font_size = 72 if fmt == "9:16" else 54
-
-    # Escape special chars for drawtext
-    safe_text = hook_text.replace("'", "\\'").replace(":", "\\:").replace(",", "\\,")[:50]
-
-    # Hook text: large, centered, white with black outline — visible for 2.5s
-    hook_filter = (
-        f"drawtext=text='{safe_text}':font='Arial Black':"
-        f"fontsize={font_size}:fontcolor=white:borderw=3:bordercolor=black:"
-        f"x=(w-tw)/2:y=(h-th)/2-50:"
-        f"enable='between(t,0,2.5)'"
-    )
-
-    r = subprocess.run([
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", hook_filter,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "copy", "-movflags", "+faststart",
-        "-loglevel", "error", out_path
-    ], capture_output=True)
-
-    if r.returncode == 0 and os.path.exists(out_path):
+    hook_ass = build_hook_ass(hook_text, fmt)
+    if not hook_ass:
+        return None
+    ass_path = video_path.rsplit(".", 1)[0] + "_hook.ass"
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(hook_ass)
+    ok = _encode_with_filters(video_path, out_path, [f"ass='{ass_path}'"])
+    os.remove(ass_path)
+    if ok:
         if os.path.exists(video_path):
             os.remove(video_path)
         return out_path
@@ -754,7 +827,7 @@ def _burn_hook_text(video_path: str, hook_text: str, fmt: str, job_id: int) -> s
 
 def step7_apply_watermark(clips: list, job_id: int,
                            watermark_text: str = "ClipForge",
-                           watermark_font: str = "Arial Rounded MT Bold") -> list:
+                           watermark_font: str = WATERMARK_FONT) -> list:
     """
     Burn text watermark onto each clip.
     White text, dark border + shadow, top right. No PNG — no issues ever.
@@ -802,7 +875,7 @@ def step_package_mode(video_path: str, moments: list, segments: list,
                       position: str = "bottom",
                       apply_watermark: bool = True,
                       watermark_text: str = "ClipForge",
-                      watermark_font: str = "Arial Rounded MT Bold",
+                      watermark_font: str = WATERMARK_FONT,
                       demo_mode: bool = False,
                       add_hooks: bool = False) -> list:
     """
@@ -817,7 +890,7 @@ def step_package_mode(video_path: str, moments: list, segments: list,
     top3 = moments[:3]
     fmt = "16:9"
     out_dir = CLIPS_DIR / str(job_id)
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     results = []
     total = len(top3)
 
@@ -897,7 +970,7 @@ def step_package_mode(video_path: str, moments: list, segments: list,
             "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
         ], capture_output=True)
 
-        chunks = split_segments_into_chunks(buf_segs, moment["start"], moment["end"], fmt)
+        chunks = relative_segments(buf_segs, moment["start"], moment["start"] + duration)
 
         results.append({
             "clip_path": final_path,
@@ -925,7 +998,7 @@ def step_split_mode(video_path: str, segments: list, job_id: int,
                     fmt: str = "16:9", clip_duration: int = 60,
                     apply_watermark_flag: bool = True,
                     watermark_text: str = "ClipForge",
-                    watermark_font: str = "Arial Rounded MT Bold",
+                    watermark_font: str = WATERMARK_FONT,
                     font: str = "Bebas Neue",
                     outline_color: str = "black",
                     font_size: int = None,
@@ -944,12 +1017,12 @@ def step_split_mode(video_path: str, segments: list, job_id: int,
         raise RuntimeError("Could not read video duration.")
 
     out_dir = CLIPS_DIR / str(job_id)
-    out_dir.mkdir(exist_ok=True)
-    crop = get_crop(fmt)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
+    # Keep a trailing partial part unless it's just a few seconds of tail.
     total_parts = int(total_duration // clip_duration)
-    if total_parts == 0:
-        total_parts = 1
+    if total_duration - total_parts * clip_duration >= 10 or total_parts == 0:
+        total_parts += 1
 
     log(job_id, f"Video is {int(total_duration)}s — creating {total_parts} parts of {clip_duration}s")
     results = []
@@ -967,21 +1040,8 @@ def step_split_mode(video_path: str, segments: list, job_id: int,
         log(job_id, f"Cutting Part {part_num}/{total_parts} ({int(start)}s-{int(end)}s)")
 
         # Cut
-        r = subprocess.run([
-            "ffmpeg", "-y",
-            "-ss", str(start),
-            "-i", video_path,
-            "-t", str(duration),
-            "-vf", crop,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-            "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart",
-            "-loglevel", "error",
-            raw_path
-        ], capture_output=True)
-
-        if r.returncode != 0:
-            log(job_id, f"Split part {part_num} cut failed: {r.stderr.decode()[:200]}", "error")
+        if not cut_clip(video_path, start, duration, fmt, raw_path, job_id=job_id):
+            log(job_id, f"Split part {part_num} cut failed", "error")
             continue
 
         # Burn captions for this segment
@@ -1022,7 +1082,7 @@ def step_split_mode(video_path: str, segments: list, job_id: int,
         ], capture_output=True)
 
         transcript = " ".join(s["text"] for s in buf_segs)
-        chunks = split_segments_into_chunks(buf_segs, start, end, fmt)
+        chunks = relative_segments(buf_segs, start, end)
 
         results.append({
             "clip_path": final_path,
@@ -1289,26 +1349,93 @@ def generate_title(transcript: str) -> str:
 
 def apply_text_watermark(in_path: str, out_path: str,
                           text: str = "ClipForge",
-                          font: str = "Arial Rounded MT Bold") -> bool:
-    """
-    Burn text watermark — white text, dark border + shadow, top right.
-    No PNG, no transparency issues. Works on every video, every time.
-    """
-    # Escape special chars
-    safe_text = text.replace("'", "\\'").replace(":", "\\:").replace(",", "\\,")
-    wm_filter = (
-        f"drawtext=text='{safe_text}':font='{font}':fontsize=38:"
-        f"fontcolor=white:x=w-tw-25:y=25:"
-        f"shadowx=2:shadowy=2:shadowcolor=black@1.0:"
-        f"borderw=2:bordercolor=black@0.9"
-    )
-    r = subprocess.run([
-        "ffmpeg", "-y", "-i", in_path,
-        "-vf", wm_filter,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "copy",
-        "-movflags", "+faststart",
-        "-loglevel", "error",
-        out_path
+                          font: str = WATERMARK_FONT) -> bool:
+    """Burn a text watermark — white text, dark border + shadow, top right."""
+    txt = out_path.rsplit(".", 1)[0] + "_wm.txt"
+    with open(txt, "w", encoding="utf-8") as f:
+        f.write(text)
+    try:
+        return _encode_with_filters(in_path, out_path, [watermark_filter(txt, font)])
+    finally:
+        os.remove(txt)
+
+
+def make_thumbnail(video_path: str, thumb_path: str, at: float = 2.0) -> str:
+    subprocess.run([
+        "ffmpeg", "-y", "-ss", str(at), "-i", video_path,
+        "-vframes", "1", "-q:v", "2", "-loglevel", "quiet", thumb_path
     ], capture_output=True)
-    return r.returncode == 0
+    return thumb_path if os.path.exists(thumb_path) else None
+
+
+def resolve_latest_video(channel_url: str) -> str:
+    """Turn a channel/profile/playlist URL into the URL of its newest video."""
+    cmd = ["yt-dlp", "--flat-playlist", "--playlist-items", "1",
+           "--print", "url", "--no-warnings"]
+    proxy_url = os.environ.get("PROXY_URL", "")
+    if proxy_url:
+        cmd += ["--proxy", proxy_url]
+    url = channel_url.rstrip("/")
+    # YouTube channel root pages list tabs, not videos — point at the videos tab.
+    if re.search(r"youtube\.com/(@[^/]+|channel/[^/]+|c/[^/]+|user/[^/]+)$", url):
+        url += "/videos"
+    r = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=120)
+    lines = [l.strip() for l in r.stdout.splitlines() if l.strip().startswith("http")]
+    if r.returncode != 0 or not lines:
+        # Not a list (e.g. already a single video URL) — use as-is.
+        return channel_url
+    return lines[0]
+
+
+def reprocess_clip(source_path: str, out_dir: str, clip_id: int,
+                   abs_start: float, abs_end: float, fmt: str,
+                   segments: list, seg_offset: float,
+                   font: str, highlight_color: str, font_size: int,
+                   position: str = "bottom", outline_color: str = "black",
+                   watermark_text: str = None, face_track: bool = True) -> dict:
+    """
+    Re-render a clip from the original source with new trim points and
+    caption style. `segments` are timed relative to the old clip start;
+    `seg_offset` is the trim start within the old clip, so captions are
+    shifted onto the new clip.
+    Returns {"clip_path", "thumbnail_path", "segments"}.
+    """
+    duration = abs_end - abs_start
+    if duration <= 0.5:
+        raise RuntimeError("Trim range is too short.")
+    stamp = int(time.time())
+    raw = os.path.join(out_dir, f"edit_{clip_id}_{stamp}_raw.mp4")
+    final = os.path.join(out_dir, f"edit_{clip_id}_{stamp}_final.mp4")
+    if not cut_clip(source_path, abs_start, duration, fmt, raw, face_track=face_track):
+        raise RuntimeError("Could not cut the clip from the source video.")
+
+    new_segs = relative_segments(segments, seg_offset, seg_offset + duration)
+    work = raw
+    ass_content = build_ass_karaoke(new_segs, 0.0, duration, fmt, font,
+                                    outline_color, font_size or None, position,
+                                    highlight_color)
+    if ass_content:
+        ass_path = raw.replace("_raw.mp4", ".ass")
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.write(ass_content)
+        cap = raw.replace("_raw.mp4", "_cap.mp4")
+        r = subprocess.run([
+            "ffmpeg", "-y", "-i", raw, "-vf", f"ass={ass_path}",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-c:a", "copy", "-movflags", "+faststart", "-loglevel", "error", cap
+        ], capture_output=True)
+        os.remove(ass_path)
+        if r.returncode == 0:
+            os.remove(raw)
+            work = cap
+
+    if watermark_text:
+        wm = work.replace(".mp4", "_wm.mp4")
+        if apply_text_watermark(work, wm, watermark_text):
+            os.remove(work)
+            work = wm
+
+    os.rename(work, final)
+    thumb = make_thumbnail(final, final.replace("_final.mp4", "_thumb.jpg"),
+                           at=min(2.0, duration / 2))
+    return {"clip_path": final, "thumbnail_path": thumb, "segments": new_segs}
