@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime data (lives under DATA_DIR in production)
+clipforge.db*
+uploads/
+clips/
+watermarks/
+previews/
+archive/
+.admin_password
+.secret_key
+
+# Downloaded at build time
+voices/*.onnx
+voices/*.onnx.json
+
+# Royalty-free music you add locally (commit only if you hold the rights)
+music/*
+!music/README.md

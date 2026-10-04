@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ClipForge — Video Preview</title>
+<link rel="icon" href="/static/cf_watermark.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f0f;color:#f0f0f0;min-height:100vh;}
@@ -81,7 +82,7 @@ async function load(){
           <div class="card" onclick="watchClip(${c.id})">
             <div class="thumb" style="${asp(c.format||'9:16')}">
               ${c.thumbnail_path
-                ?`<img src="/api/clips/${c.id}/thumbnail" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
+                ?`<img src="/api/previews/${token}/clips/${c.id}/thumbnail" loading="lazy" style="width:100%;height:100%;object-fit:cover;">`
                 :`<div class="tph" style="width:100%;height:100%;">🎬</div>`}
               ${c.format&&c.format!=='9:16'?`<div class="fmt-tag">${c.format}</div>`:''}
               <div class="dur">${dur(c.duration_sec)}</div>
@@ -104,7 +105,7 @@ async function load(){
 }
 
 function watchClip(id){
-  document.getElementById('vplayer').src=`/api/clips/${id}/file`;
+  document.getElementById('vplayer').src=`/api/previews/${token}/clips/${id}/file`;
   document.getElementById('vplayer').load();
   document.getElementById('vplayer').play();
   document.getElementById('vmod').classList.add('show');

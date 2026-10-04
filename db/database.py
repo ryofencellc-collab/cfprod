@@ -1,18 +1,16 @@
 """
-ClipForge v6.0 — Database
+ClipForge — Database
 SQLite schema with full migration support.
 Every column added after v1 has a migration so existing DBs upgrade cleanly.
 """
+import json
 import sqlite3
-import os
-from pathlib import Path
 
-VERSION = "6.0"
-DB_PATH = Path(__file__).parent.parent / "clipforge.db"
+from config import DB_PATH, VERSION
 
 
 def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -126,6 +124,81 @@ def init_db():
             level       TEXT DEFAULT 'info',
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS leads (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT,
+            email       TEXT,
+            channel_url TEXT,
+            message     TEXT,
+            status      TEXT DEFAULT 'new',
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key         TEXT PRIMARY KEY,
+            value       TEXT,
+            updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Archive autopilot: every piece of footage we consider, with the
+        -- license evidence that let it through (or the reason it was rejected).
+        CREATE TABLE IF NOT EXISTS archive_sources (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider       TEXT,
+            identifier     TEXT UNIQUE,
+            title          TEXT,
+            description    TEXT,
+            date           TEXT,
+            collection     TEXT,
+            license_url    TEXT,
+            license_name   TEXT,
+            rights_basis   TEXT,
+            source_url     TEXT,
+            file_url       TEXT,
+            duration       REAL DEFAULT 0,
+            metadata_json  TEXT,
+            status         TEXT DEFAULT 'new',
+            reject_reason  TEXT,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS archive_episodes (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id      INTEGER,
+            status         TEXT DEFAULT 'rendering',
+            progress       TEXT,
+            title_long     TEXT,
+            title_short    TEXT,
+            description    TEXT,
+            tags_json      TEXT DEFAULT '[]',
+            hook           TEXT,
+            script_long    TEXT,
+            script_short   TEXT,
+            script_tiktok  TEXT,
+            long_path      TEXT,
+            short_path     TEXT,
+            tiktok_path    TEXT,
+            thumb_path     TEXT,
+            error          TEXT,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS archive_posts (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            episode_id     INTEGER,
+            platform       TEXT,
+            kind           TEXT,
+            status         TEXT DEFAULT 'scheduled',
+            scheduled_at   TIMESTAMP,
+            posted_at      TIMESTAMP,
+            external_id    TEXT,
+            external_url   TEXT,
+            response_json  TEXT,
+            error          TEXT,
+            attempts       INTEGER DEFAULT 0,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.commit()
 
@@ -151,6 +224,17 @@ def _run_migrations(conn):
     _add_column_if_missing(conn, "jobs", "outline_color",  "TEXT DEFAULT 'black'")
     _add_column_if_missing(conn, "jobs", "whisper_model",  "TEXT DEFAULT 'base'")
     _add_column_if_missing(conn, "jobs", "error",          "TEXT")
+    _add_column_if_missing(conn, "jobs", "face_track",     "INTEGER DEFAULT 1")
+
+    # Archive autopilot
+    _add_column_if_missing(conn, "archive_episodes", "kind",            "TEXT DEFAULT 'single'")
+    _add_column_if_missing(conn, "archive_episodes", "segment_path",    "TEXT")
+    _add_column_if_missing(conn, "archive_episodes", "segment_title",   "TEXT")
+    _add_column_if_missing(conn, "archive_episodes", "compiled_in",     "INTEGER")
+    _add_column_if_missing(conn, "archive_episodes", "source_ids_json", "TEXT DEFAULT '[]'")
+    _add_column_if_missing(conn, "archive_episodes", "caption_tiktok",  "TEXT")
+    _add_column_if_missing(conn, "archive_posts",    "title",           "TEXT")
+    _add_column_if_missing(conn, "archive_posts",    "body",            "TEXT")
 
     # Clips table migrations
     _add_column_if_missing(conn, "clips", "outline_color",     "TEXT")
@@ -202,3 +286,32 @@ def set_step(job_id: int, step: str, progress: int):
         conn.close()
     except Exception as e:
         print(f"[SET_STEP ERROR] {e}")
+
+
+# ── Settings (key/value, JSON-encoded) ────────────────────────────────────
+
+def get_setting(key: str, default=None):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    finally:
+        conn.close()
+    if not row or row["value"] is None:
+        return default
+    try:
+        return json.loads(row["value"])
+    except Exception:
+        return default
+
+
+def set_setting(key: str, value):
+    conn = get_conn()
+    try:
+        conn.execute(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP",
+            (key, json.dumps(value)),
+        )
+        conn.commit()
+    finally:
+        conn.close()

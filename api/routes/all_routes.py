@@ -1,29 +1,35 @@
 """
-ClipForge v6.0 — API Routes
-All endpoints in one file for simplicity.
+ClipForge — API Routes
+Clipping-business endpoints (clients, jobs, clips, previews, leads, debug).
 """
+import json
 import os
+import re
 import shutil
 import secrets
+import time
+from collections import defaultdict, deque
 from typing import Optional
-from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from config import (
+    CLIPS_DIR, UPLOADS_DIR, WATERMARKS_DIR, PUBLIC_BASE_URL,
+    BUSINESS_NAME, CONTACT_EMAIL, VERSION,
+)
 from db.database import get_conn
-from core.job_runner import run_job
-
-VERSION = "6.0"
-
-CLIPS_DIR      = Path(__file__).parent.parent.parent / "clips"
-UPLOADS_DIR    = Path(__file__).parent.parent.parent / "uploads"
-WATERMARKS_DIR = Path(__file__).parent.parent.parent / "watermarks"
+from core.job_runner import run_job, queue_size
 
 clips_router    = APIRouter()
 clients_router  = APIRouter()
 jobs_router     = APIRouter()
 debug_router    = APIRouter()
 previews_router = APIRouter()
+leads_router    = APIRouter()
+
+
+def _base_url(request: Request) -> str:
+    return PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
 
 
 # ─── Pydantic Models ──────────────────────────────────────────────────────
@@ -165,6 +171,79 @@ def delete_clip(clip_id: int):
     return {"deleted": clip_id}
 
 
+@clips_router.post("/{clip_id}/reprocess")
+def reprocess_clip_endpoint(
+    clip_id: int,
+    trim_start: float = Form(0),
+    trim_end: float = Form(0),
+    caption_font: str = Form("Bebas Neue"),
+    highlight_color: str = Form("yellow"),
+    font_size: int = Form(0),
+    segments_json: str = Form("[]"),
+):
+    """Re-render a clip from its source video with editor trims + caption style."""
+    from core.engine import reprocess_clip
+    conn = get_conn()
+    try:
+        clip = conn.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
+        if not clip:
+            raise HTTPException(404, "Clip not found")
+        job = conn.execute("SELECT * FROM jobs WHERE id=?", (clip["job_id"],)).fetchone()
+        client = conn.execute("SELECT name FROM clients WHERE id=?", (clip["client_id"],)).fetchone()
+    finally:
+        conn.close()
+    source = job["source_file"] if job else None
+    if not source or not os.path.exists(source):
+        raise HTTPException(409, "Original video is no longer on the server, so this clip can't be re-rendered.")
+    try:
+        segments = json.loads(segments_json or "[]")
+        if not isinstance(segments, list):
+            segments = []
+    except ValueError:
+        segments = []
+
+    old_dur = clip["duration_sec"] or (clip["end_sec"] - clip["start_sec"])
+    trim_start = max(0.0, trim_start)
+    trim_end = old_dur if trim_end <= 0 else min(trim_end, old_dur)
+    if trim_end - trim_start < 1:
+        raise HTTPException(400, "Clip must be at least 1 second long.")
+
+    watermark = None
+    if job and job["apply_watermark"]:
+        watermark = (client["name"] if client else None) or BUSINESS_NAME
+    try:
+        result = reprocess_clip(
+            source, os.path.dirname(clip["file_path"]) or str(CLIPS_DIR), clip_id,
+            clip["start_sec"] + trim_start, clip["start_sec"] + trim_end,
+            clip["format"] or "9:16", segments, trim_start,
+            caption_font, highlight_color, font_size,
+            position=clip["caption_position"] or "bottom",
+            outline_color=clip["outline_color"] or "black",
+            watermark_text=watermark,
+            face_track=bool(job["face_track"]) if job and job["face_track"] is not None else True,
+        )
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    for old in (clip["file_path"], clip["thumbnail_path"]):
+        if old and os.path.exists(old) and old not in (result["clip_path"], result["thumbnail_path"]):
+            os.remove(old)
+    new_start = clip["start_sec"] + trim_start
+    new_end = clip["start_sec"] + trim_end
+    conn = get_conn()
+    conn.execute("""
+        UPDATE clips SET file_path=?, thumbnail_path=?, start_sec=?, end_sec=?, duration_sec=?,
+               segments_json=?, caption_font=?, font_size=?
+        WHERE id=?""", (
+        result["clip_path"], result["thumbnail_path"], new_start, new_end,
+        new_end - new_start, json.dumps(result["segments"]), caption_font, font_size, clip_id,
+    ))
+    conn.commit()
+    row = conn.execute("SELECT * FROM clips WHERE id=?", (clip_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
 # ─── Clients ──────────────────────────────────────────────────────────────
 
 @clients_router.get("/")
@@ -210,18 +289,32 @@ def update_client(client_id: int, body: ClientUpdate):
 
 
 @clients_router.get("/{client_id}/email-draft")
-def get_email_draft(client_id: int):
-    """Generate the outreach email draft for a prospect."""
+def get_email_draft(client_id: int, request: Request):
+    """Generate the outreach email draft for a prospect, with a live preview link."""
     conn = get_conn()
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client:
+        conn.close()
+        raise HTTPException(404, "Client not found")
     clips = conn.execute(
-        "SELECT * FROM clips WHERE client_id=? ORDER BY created_at DESC LIMIT 3",
+        "SELECT * FROM clips WHERE client_id=? AND status='approved' ORDER BY created_at DESC LIMIT 10",
         (client_id,)
     ).fetchall()
+    preview_link = ""
+    if clips:
+        prev = conn.execute(
+            "SELECT token FROM previews WHERE client_id=? ORDER BY created_at DESC LIMIT 1",
+            (client_id,)
+        ).fetchone()
+        token = prev["token"] if prev else secrets.token_urlsafe(16)
+        if not prev:
+            conn.execute(
+                "INSERT INTO previews (client_id, token, title, message) VALUES (?,?,?,?)",
+                (client_id, token, f"Clips for {client['name']}", "")
+            )
+            conn.commit()
+        preview_link = f"{_base_url(request)}/preview/{token}"
     conn.close()
-
-    if not client:
-        raise HTTPException(404, "Client not found")
 
     name = client["name"]
     prospect_email = client["prospect_email"] or ""
@@ -235,11 +328,11 @@ We came across your page and we have to be honest — your content is good. But 
 
 That's where we come in.
 
-ClipForge is a professional video clipping service that transforms long-form content into short, high-impact clips built for TikTok, Instagram Reels, and YouTube Shorts. We handle everything — the cutting, the captions, the formatting. You just post.
+{BUSINESS_NAME} is a professional video clipping service that transforms long-form content into short, high-impact clips built for TikTok, Instagram Reels, and YouTube Shorts. We handle everything — the cutting, the captions, the formatting. You just post.
 
 We took one of your videos and created {clips_note} for you — completely free, no strings attached.
 
-👉 Your Free Clips: [Attach clips or paste Drive link]
+👉 Your Free Clips: {preview_link or "[Approve clips in the dashboard first — a preview link will appear here]"}
 
 ---
 
@@ -247,21 +340,21 @@ A quick note on quality:
 
 The clips above were created from a downloaded version of your video. Downloaded files lose quality in the process — so what you're seeing is actually below our standard delivery.
 
-When you become a ClipForge client, you send us your original video file directly. We send back your clips at full quality — crisp, clean, and ready to post. What we delivered here is a preview of the concept, not the finished product.
+When you become a {BUSINESS_NAME} client, you send us your original video file directly. We send back your clips at full quality — crisp, clean, and ready to post. What we delivered here is a preview of the concept, not the finished product.
 
 ---
 
 Your brand. Protected. Always.
 
-You'll notice our ClipForge watermark on these clips. Here's why that matters for you.
+You'll notice a watermark on these clips. Here's why that matters for you.
 
-Content theft is real. Every day, pages download creators' videos and repost them without credit. When you work with ClipForge, every clip is branded with your watermark — your name, your logo, your brand — permanently embedded into every video.
+Content theft is real. Every day, pages download creators' videos and repost them without credit. When you work with {BUSINESS_NAME}, every clip is branded with your watermark — your name, your logo, your brand — permanently embedded into every video.
 
 No matter where your content ends up, no matter who reposts it — your audience always knows where it came from. Your page grows even when someone else is doing the posting.
 
 ---
 
-What ClipForge delivers:
+What {BUSINESS_NAME} delivers:
 
 ✅ Long videos transformed into short, viral-ready clips
 ✅ Professional captions that keep viewers watching
@@ -282,8 +375,8 @@ These sample clips are our gift to you. If you like what you see and want this d
 
 Reply to this email and let's talk.
 
-— The ClipForge Team
-officialclipforge@gmail.com"""
+— The {BUSINESS_NAME} Team
+{CONTACT_EMAIL}"""
 
     return {
         "to": prospect_email,
@@ -291,6 +384,7 @@ officialclipforge@gmail.com"""
         "body": body,
         "client_name": name,
         "clip_count": clip_count,
+        "preview_link": preview_link,
     }
 
 
@@ -385,6 +479,7 @@ def submit_url(
     caption_position: str = Form("bottom"),
     process_limit:   int  = Form(0),
     whisper_model:   str  = Form("base"),
+    face_track:      int  = Form(1),
 ):
     conn = get_conn()
     client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
@@ -401,11 +496,11 @@ def submit_url(
         outline_color=outline_color, highlight_color=highlight_color,
         caption_preset=caption_preset, font_size=font_size,
         caption_position=caption_position, process_limit=process_limit,
-        whisper_model=whisper_model,
+        whisper_model=whisper_model, face_track=face_track,
     )
     conn.close()
     run_job(job_id)
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "queue_position": queue_size()}
 
 
 @jobs_router.post("/submit-file")
@@ -430,11 +525,14 @@ async def submit_file(
     caption_position: str        = Form("bottom"),
     process_limit:   int         = Form(0),
     whisper_model:   str         = Form("base"),
+    face_track:      int         = Form(1),
 ):
     # Save uploaded file
     upload_dir = UPLOADS_DIR / "upload_tmp"
-    upload_dir.mkdir(exist_ok=True)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "mp4"
+    if not re.fullmatch(r"[a-z0-9]{1,5}", ext):
+        ext = "mp4"
     dest = upload_dir / f"upload_{secrets.token_hex(8)}.{ext}"
 
     with open(dest, "wb") as f:
@@ -451,11 +549,11 @@ async def submit_file(
         outline_color=outline_color, highlight_color=highlight_color,
         caption_preset=caption_preset, font_size=font_size,
         caption_position=caption_position, process_limit=process_limit,
-        whisper_model=whisper_model,
+        whisper_model=whisper_model, face_track=face_track,
     )
     conn.close()
     run_job(job_id)
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "queue_position": queue_size()}
 
 
 @jobs_router.post("/demo")
@@ -483,14 +581,17 @@ def channel_demo(client_id: int = Form(...)):
     if not channel_url:
         raise HTTPException(400, "No channel URL set for this client. Edit the client and add their channel URL.")
 
+    from core.engine import resolve_latest_video
+    video_url = resolve_latest_video(channel_url)
+
     conn2 = get_conn()
-    job_id = _create_job(conn2, client_id, source_url=channel_url,
+    job_id = _create_job(conn2, client_id, source_url=video_url,
         format="16:9", burn_captions=1, apply_watermark=1,
         package_mode=1, demo_mode=1, whisper_model="base",
     )
     conn2.close()
     run_job(job_id)
-    return {"job_id": job_id, "status": "queued"}
+    return {"job_id": job_id, "status": "queued", "video_url": video_url}
 
 
 @jobs_router.get("/{job_id}")
@@ -544,11 +645,124 @@ def get_preview(token: str):
         (preview["client_id"],)
     ).fetchall()
     conn.close()
+    public_fields = ("id", "title", "duration_sec", "format", "thumbnail_path", "created_at")
     return {
         "title": preview["title"],
         "message": preview["message"],
-        "clips": [dict(c) for c in clips],
+        "clips": [{k: c[k] for k in public_fields} for c in clips],
     }
+
+
+def _preview_clip(token: str, clip_id: int):
+    conn = get_conn()
+    try:
+        preview = conn.execute("SELECT client_id FROM previews WHERE token=?", (token,)).fetchone()
+        if not preview:
+            raise HTTPException(404, "Preview not found")
+        clip = conn.execute(
+            "SELECT * FROM clips WHERE id=? AND client_id=? AND status='approved'",
+            (clip_id, preview["client_id"])
+        ).fetchone()
+    finally:
+        conn.close()
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    return clip
+
+
+@previews_router.get("/{token}/clips/{clip_id}/file")
+def preview_clip_file(token: str, clip_id: int):
+    clip = _preview_clip(token, clip_id)
+    if not clip["file_path"] or not os.path.exists(clip["file_path"]):
+        raise HTTPException(404, "Clip file not found")
+    return FileResponse(clip["file_path"], media_type="video/mp4")
+
+
+@previews_router.get("/{token}/clips/{clip_id}/thumbnail")
+def preview_clip_thumbnail(token: str, clip_id: int):
+    clip = _preview_clip(token, clip_id)
+    if not clip["thumbnail_path"] or not os.path.exists(clip["thumbnail_path"]):
+        raise HTTPException(404, "Thumbnail not found")
+    return FileResponse(clip["thumbnail_path"], media_type="image/jpeg")
+
+
+# ─── Leads (public contact form) ──────────────────────────────────────────
+
+class LeadCreate(BaseModel):
+    name: str
+    email: str
+    channel_url: str = ""
+    message: str = ""
+    website: str = ""  # honeypot — real visitors never fill this in
+
+
+_lead_hits = defaultdict(deque)
+
+
+@leads_router.post("")
+def create_lead(body: LeadCreate, request: Request):
+    from core.auth import client_ip
+    if body.website:
+        return {"ok": True}  # silently drop bots
+    ip = client_ip(request)
+    q = _lead_hits[ip]
+    now = time.time()
+    while q and q[0] < now - 3600:
+        q.popleft()
+    if len(q) >= 5:
+        raise HTTPException(429, "Too many submissions — please email us instead.")
+    q.append(now)
+    email = body.email.strip()[:200]
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(400, "Please enter a valid email address.")
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO leads (name, email, channel_url, message) VALUES (?,?,?,?)",
+        (body.name.strip()[:200], email, body.channel_url.strip()[:500], body.message.strip()[:4000])
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@leads_router.get("/")
+def list_leads():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM leads ORDER BY created_at DESC LIMIT 200").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+class LeadUpdate(BaseModel):
+    status: str
+
+
+@leads_router.patch("/{lead_id}")
+def update_lead(lead_id: int, body: LeadUpdate):
+    conn = get_conn()
+    conn.execute("UPDATE leads SET status=? WHERE id=?", (body.status[:30], lead_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@leads_router.post("/{lead_id}/convert")
+def convert_lead(lead_id: int):
+    """Turn a lead into a client record so you can run a demo for them."""
+    conn = get_conn()
+    lead = conn.execute("SELECT * FROM leads WHERE id=?", (lead_id,)).fetchone()
+    if not lead:
+        conn.close()
+        raise HTTPException(404, "Lead not found")
+    cur = conn.execute(
+        "INSERT INTO clients (name, email, prospect_email, channel_url) VALUES (?,?,?,?)",
+        (lead["name"] or lead["email"], lead["email"], lead["email"], lead["channel_url"])
+    )
+    conn.execute("UPDATE leads SET status='converted' WHERE id=?", (lead_id,))
+    conn.commit()
+    row = conn.execute("SELECT * FROM clients WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.close()
+    return dict(row)
 
 
 # ─── Debug ────────────────────────────────────────────────────────────────
@@ -603,6 +817,28 @@ def debug_summary():
     }
 
 
+@debug_router.post("/reset")
+def debug_reset(confirm: str = ""):
+    """Delete all jobs, clips, moments, logs, previews and their media files.
+    Clients, leads, settings and the archive autopilot are kept."""
+    if confirm != "RESET":
+        raise HTTPException(400, "Pass ?confirm=RESET to wipe clipping data.")
+    conn = get_conn()
+    for table in ("clips", "moments", "jobs", "logs", "previews"):
+        conn.execute(f"DELETE FROM {table}")
+    conn.execute("UPDATE clients SET videos_used=0")
+    conn.commit()
+    conn.close()
+    for d in (CLIPS_DIR, UPLOADS_DIR):
+        if d.exists():
+            for child in d.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+    return {"reset": True}
+
+
 @debug_router.get("/diagnostics")
 def diagnostics():
     import subprocess
@@ -634,6 +870,9 @@ def diagnostics():
     results["openai_key"] = "set" if os.environ.get("OPENAI_API_KEY") else "not set"
     results["anthropic_key"] = "set" if os.environ.get("ANTHROPIC_API_KEY") else "not set"
     results["proxy"] = os.environ.get("PROXY_URL", "not set").split("@")[-1]
+    from core.reframe import MODEL_PATH
+    results["face_tracking"] = "ok" if MODEL_PATH.exists() else "model missing"
+    results["queue_waiting"] = queue_size()
 
     # Disk space
     try:

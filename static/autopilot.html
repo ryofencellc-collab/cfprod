@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge — Archive Autopilot</title>
+<link rel="icon" href="/static/cf_watermark.png">
+<style>
+:root{--accent:#f97316;--gold:#fbbf24;--bg:#0a0a0a;--bg2:#111;--bg3:#1a1a1a;--border:#2a2a2a;--text:#e8e8e0;--muted:#8a8a84;--dim:#555;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;}
+a{color:#60a5fa;}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:20;flex-wrap:wrap;}
+.logo{font-size:18px;font-weight:800;color:#fff;}.logo span{color:var(--accent);}
+.nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap;}
+.nav a{font-size:12px;padding:5px 12px;border-radius:6px;color:var(--muted);text-decoration:none;}
+.nav a.on,.nav a:hover{background:var(--bg3);color:#fff;}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 60px;display:grid;gap:16px;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;}
+.card h2{font-size:15px;margin-bottom:12px;color:#fff;}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.switch{display:flex;align-items:center;gap:14px;}
+.big{font-size:22px;font-weight:800;}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--muted);}
+.pill.ok{color:var(--ok);border-color:#14532d;background:#052e16;}
+.pill.bad{color:var(--bad);border-color:#5a1515;background:#2a0a0a;}
+.pill.warn{color:var(--warn);border-color:#5a4410;background:#2a1f05;}
+button,.btn{font:inherit;font-size:12px;font-weight:600;padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);cursor:pointer;text-decoration:none;display:inline-block;}
+button:hover,.btn:hover{border-color:var(--accent);}
+button.primary{background:linear-gradient(135deg,var(--accent),var(--gold));color:#000;border:none;}
+button.danger{color:var(--bad);}
+button:disabled{opacity:.5;cursor:not-allowed;}
+.toggle{width:58px;height:30px;border-radius:30px;background:#333;position:relative;cursor:pointer;border:none;padding:0;}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:left .15s;}
+.toggle.on{background:var(--ok);}
+.toggle.on::after{left:31px;}
+.checks{display:grid;gap:8px;}
+.check{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;}
+.check small{color:var(--muted);display:block;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;}
+label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;}
+input,select,textarea{width:100%;background:#0d0d0d;border:1px solid var(--border);border-radius:7px;color:var(--text);font:inherit;font-size:13px;padding:7px 9px;}
+input[type=checkbox]{width:auto;}
+.stats{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px;}
+.stats b{color:#fff;font-size:16px;display:block;}
+.ep{border:1px solid var(--border);border-radius:10px;padding:12px;display:grid;grid-template-columns:160px 1fr;gap:14px;}
+.ep img,.ep .ph{width:160px;aspect-ratio:16/9;object-fit:cover;border-radius:6px;background:#000;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:24px;}
+.ep h3{font-size:14px;color:#fff;margin-bottom:4px;}
+.meta{font-size:12px;color:var(--muted);}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;}
+td,th{text-align:left;padding:5px 6px;border-top:1px solid var(--border);vertical-align:top;}
+th{color:var(--dim);font-weight:600;}
+.logs{max-height:280px;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.6;}
+.logs .error{color:var(--bad);}.logs .warn{color:var(--warn);}
+.note{font-size:12px;color:var(--muted);line-height:1.6;}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:50;padding:16px;}
+.modal-bg.show{display:flex;}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;max-width:560px;width:100%;max-height:90vh;overflow:auto;}
+.modal video{width:100%;max-height:70vh;background:#000;border-radius:8px;}
+.toast{position:fixed;bottom:20px;right:20px;background:#052e16;color:var(--ok);border:1px solid #14532d;padding:10px 14px;border-radius:9px;font-size:13px;font-weight:600;opacity:0;transition:opacity .2s;z-index:60;max-width:340px;}
+.toast.err{background:#2a0a0a;color:var(--bad);border-color:#5a1515;}
+.toast.show{opacity:1;}
+@media (max-width:640px){.ep{grid-template-columns:1fr;}.ep img,.ep .ph{width:100%;}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">Clip<span>Forge</span></div>
+  <div class="nav">
+    <a href="/dashboard">Clips</a>
+    <a href="/autopilot" class="on">Archive Autopilot</a>
+    <a href="/debug">Debug</a>
+    <a href="#" onclick="logout();return false;">Log out</a>
+  </div>
+</div>
+
+<main>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div class="switch">
+        <button class="toggle" id="masterToggle" onclick="toggleMaster()" aria-label="Autopilot on/off"></button>
+        <div>
+          <div class="big" id="masterLabel">Autopilot</div>
+          <div class="meta" id="workerLine"></div>
+        </div>
+      </div>
+      <div class="row">
+        <button onclick="runNow('single')">▶ Make an episode now</button>
+        <button onclick="runNow('compilation')">▶ Make long-form now</button>
+      </div>
+    </div>
+    <div class="stats" style="margin-top:14px;" id="stats"></div>
+    <div class="meta" id="lastError" style="color:var(--bad);margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Setup checklist</h2>
+    <div class="checks" id="checks"></div>
+    <p class="note" style="margin-top:10px;">Full step-by-step instructions are in <code>docs/SETUP.md</code>. Licensing rules the autopilot follows are in <code>docs/COMPLIANCE.md</code>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Settings</h2>
+    <div class="grid">
+      <div><label>YouTube Shorts / day</label><input type="number" id="shorts_per_day" min="0" max="4"></div>
+      <div><label>TikTok drafts / day</label><input type="number" id="tiktok_per_day" min="0" max="3"></div>
+      <div><label>Long-form videos / week</label><input type="number" id="long_per_week" min="0" max="7"></div>
+      <div><label>Newsreels per long-form</label><input type="number" id="compilation_size" min="3" max="8"></div>
+      <div><label>Post from (hour)</label><input type="number" id="window_start" min="0" max="23"></div>
+      <div><label>Post until (hour)</label><input type="number" id="window_end" min="1" max="24"></div>
+      <div><label>Time zone</label><input id="timezone" placeholder="America/New_York"></div>
+      <div><label>YouTube visibility</label>
+        <select id="youtube_privacy"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></div>
+      <div><label>Narrator voice (0–903)</label>
+        <div class="row" style="flex-wrap:nowrap;"><input type="number" id="voice_speaker" min="0" max="903"><button onclick="previewVoice()" title="Hear this voice">▶</button></div></div>
+      <div><label>Archive collections</label><input id="collections" placeholder="universal_newsreels"></div>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);margin:0;"><input type="checkbox" id="youtube_enabled"> Post to YouTube</label>
+      <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);margin:0;"><input type="checkbox" id="tiktok_enabled"> Send to TikTok</label>
+      <button class="primary" style="margin-left:auto;" onclick="saveSettings()">Save settings</button>
+    </div>
+    <audio id="voiceAudio" style="display:none;"></audio>
+  </div>
+
+  <div class="card">
+    <h2>Videos</h2>
+    <div id="episodes"><div class="note">Loading…</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Activity</h2>
+    <div class="logs" id="logs"></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div id="modalBody"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px;"><button onclick="closeModal()">Close</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let status = null;
+const captions = {};
+const FIELDS = ['shorts_per_day','tiktok_per_day','long_per_week','compilation_size','window_start','window_end','timezone','youtube_privacy','voice_speaker'];
+
+function esc(s) {return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function toast(msg, err=false) {const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(err?' err':'');setTimeout(()=>t.className='toast',4000);}
+async function api(method, path, body) {
+  const o = {method, headers: {}};
+  if (body) {o.headers['Content-Type']='application/json'; o.body=JSON.stringify(body);}
+  const r = await fetch(path, o);
+  if (r.status === 401) {location.href='/login?next=/autopilot'; throw new Error('Session expired');}
+  if (!r.ok) {let d=r.statusText; try{d=(await r.json()).detail||d;}catch(e){} throw new Error(d);}
+  return r.headers.get('content-type')?.includes('json') ? r.json() : r;
+}
+async function logout() {await fetch('/api/auth/logout',{method:'POST'}); location.href='/login';}
+function localTime(utc) {if(!utc)return '';const d=new Date(utc.replace(' ','T')+'Z');return d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+function pill(ok, yes, no, warn=false) {return `<span class="pill ${ok?'ok':(warn?'warn':'bad')}">${esc(ok?yes:no)}</span>`;}
+
+async function loadStatus() {
+  status = await api('GET', '/api/autopilot/status');
+  const s = status.settings, c = status.checks, w = status.worker;
+  const t = document.getElementById('masterToggle');
+  t.className = 'toggle' + (s.enabled ? ' on' : '');
+  document.getElementById('masterLabel').textContent = s.enabled ? 'Autopilot is ON' : 'Autopilot is OFF';
+  document.getElementById('workerLine').textContent = s.enabled
+    ? `Producer: ${w.producer} · Publisher: ${w.publisher}` + (status.backing_off ? ' · paused for an hour after repeated failures' : '')
+    : 'Nothing is made or posted while off. Turn it on when the checklist is green.';
+  document.getElementById('lastError').textContent = w.last_error ? 'Last error: ' + w.last_error : '';
+  const p = status.posts, src = status.sources;
+  document.getElementById('stats').innerHTML = `
+    <div><b>${p.scheduled||0}</b>scheduled</div><div><b>${p.posted||0}</b>posted</div>
+    <div><b>${p.failed||0}</b>failed</div><div><b>${status.chapters_ready}</b>chapters for next long-form</div>
+    <div><b>${src.used||0}</b>newsreels used</div><div><b>${src.rejected||0}</b>rejected by license/safety checks</div>`;
+
+  const yt = c.youtube, tk = c.tiktok;
+  document.getElementById('checks').innerHTML = `
+    <div class="check"><div>AI script writer<small>Set GROQ_API_KEY (free at console.groq.com)</small></div>${pill(c.ai_key,'Ready','Missing key')}</div>
+    <div class="check"><div>Narration voice<small>LibriTTS voice, free for commercial use with credit</small></div>${pill(c.voice_model,'Installed','Missing — rebuild the Docker image')}</div>
+    <div class="check"><div>Public URL<small>Set PUBLIC_BASE_URL so YouTube/TikTok can redirect back after login</small></div>${pill(c.public_base_url,'Set','Not set',true)}</div>
+    <div class="check"><div>YouTube ${yt.channel?'· '+esc(yt.channel):''}<small>${yt.configured?'Uploads stay private until Google approves your API audit.':'Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET'}</small></div>
+      <div class="row">${pill(yt.connected,'Connected','Not connected')}
+      ${yt.configured ? (yt.connected ? `<button onclick="disconnect('youtube')">Disconnect</button>` : `<a class="btn" href="/api/oauth/youtube/start">Connect YouTube</a>`) : ''}</div></div>
+    <div class="check"><div>TikTok ${tk.account?'· '+esc(tk.account):''}<small>${tk.configured?'Videos arrive in your TikTok inbox as drafts — tap to post (TikTok rule).':'Set TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET'}</small></div>
+      <div class="row">${pill(tk.connected,'Connected','Not connected')}
+      ${tk.configured ? (tk.connected ? `<button onclick="disconnect('tiktok')">Disconnect</button>` : `<a class="btn" href="/api/oauth/tiktok/start">Connect TikTok</a>`) : ''}</div></div>`;
+
+  if (!document.getElementById('settingsLoaded')) {
+    FIELDS.forEach(f => document.getElementById(f).value = s[f]);
+    document.getElementById('collections').value = (s.collections||[]).join(', ');
+    document.getElementById('youtube_enabled').checked = s.youtube_enabled;
+    document.getElementById('tiktok_enabled').checked = s.tiktok_enabled;
+    const m = document.createElement('i'); m.id='settingsLoaded'; m.hidden=true; document.body.appendChild(m);
+  }
+}
+
+async function toggleMaster() {
+  const on = !status.settings.enabled;
+  if (on && !status.checks.ai_key) {toast('Add GROQ_API_KEY first — the autopilot needs it to write narration.', true); return;}
+  await api('PUT', '/api/autopilot/settings', {changes: {enabled: on}});
+  toast(on ? 'Autopilot ON — first episode starts within a few minutes' : 'Autopilot OFF — nothing will be made or posted');
+  loadStatus(); loadLogs();
+}
+
+async function saveSettings() {
+  const changes = {};
+  FIELDS.forEach(f => {const v = document.getElementById(f).value; changes[f] = (f==='timezone'||f==='youtube_privacy') ? v : parseInt(v||'0');});
+  changes.collections = document.getElementById('collections').value.split(',').map(x=>x.trim()).filter(Boolean);
+  changes.youtube_enabled = document.getElementById('youtube_enabled').checked;
+  changes.tiktok_enabled = document.getElementById('tiktok_enabled').checked;
+  try {
+    const s = await api('PUT', '/api/autopilot/settings', {changes});
+    FIELDS.forEach(f => document.getElementById(f).value = s[f]);
+    toast('Settings saved'); loadStatus();
+  } catch (e) {toast(e.message, true);}
+}
+
+async function previewVoice() {
+  const speaker = parseInt(document.getElementById('voice_speaker').value || '0');
+  toast('Generating voice sample…');
+  try {
+    const r = await api('POST', '/api/autopilot/voice-preview', {speaker});
+    const a = document.getElementById('voiceAudio');
+    a.src = URL.createObjectURL(await r.blob()); a.play();
+  } catch (e) {toast(e.message, true);}
+}
+
+async function runNow(kind) {
+  try {await api('POST', '/api/autopilot/run', {kind}); toast(kind==='single' ? 'Making an episode — takes a few minutes' : 'Making a long-form video — takes several minutes');}
+  catch (e) {toast(e.message, true);}
+}
+
+async function disconnect(platform) {
+  if (!confirm(`Disconnect ${platform}?`)) return;
+  await api('POST', `/api/oauth/${platform}/disconnect`); loadStatus();
+}
+
+function postRow(p) {
+  const cls = {posted:'ok', failed:'bad', scheduled:'warn', uploading:'warn'}[p.status] || '';
+  const when = p.status === 'posted' ? localTime(p.posted_at) : localTime(p.scheduled_at);
+  const label = p.platform === 'tiktok' ? 'TikTok draft' : (p.kind === 'long' ? 'YouTube long-form' : 'YouTube Short');
+  let link = '';
+  if (p.external_url) link = `<a href="${esc(p.external_url)}" target="_blank" rel="noopener">open</a>`;
+  else if (p.platform === 'tiktok' && p.status === 'posted') link = 'in your TikTok inbox';
+  const acts = [];
+  if (p.status === 'scheduled') acts.push(`<button onclick="postAct(${p.id},'post-now')">Post now</button>`, `<button onclick="postAct(${p.id},'skip')">Skip</button>`);
+  if (p.status === 'failed') acts.push(`<button onclick="postAct(${p.id},'retry')">Retry</button>`);
+  if (p.platform === 'tiktok') {captions[p.id] = p.body || ''; acts.push(`<button onclick="copyText(captions[${p.id}])">Copy caption</button>`);}
+  return `<tr><td>${label}</td><td><span class="pill ${cls}">${esc(p.status)}</span></td><td>${esc(when)}</td>
+    <td>${link}${p.error?`<div style="color:var(--bad)">${esc(p.error.slice(0,160))}</div>`:''}</td><td class="row">${acts.join('')}</td></tr>`;
+}
+
+async function loadEpisodes() {
+  const eps = await api('GET', '/api/autopilot/episodes');
+  const box = document.getElementById('episodes');
+  if (!eps.length) {box.innerHTML = '<div class="note">No videos yet. Finish the checklist, then press “Make an episode now” to test.</div>'; return;}
+  box.innerHTML = eps.map(e => {
+    const title = e.kind === 'compilation' ? e.title_long : e.title_short;
+    const thumb = e.has_thumb ? `<img src="/api/autopilot/episodes/${e.id}/file/thumb" loading="lazy" alt="">` : `<div class="ph">🎞</div>`;
+    const vids = [['short','Short'],['tiktok','TikTok'],['segment','Chapter'],['long','Long-form']]
+      .filter(([k]) => e['has_'+k]).map(([k,l]) => `<button onclick="play(${e.id},'${k}')">▶ ${l}</button>`).join('');
+    const src = e.kind === 'compilation' ? '<span class="pill">long-form compilation</span>'
+      : `Source: <a href="${esc(e.source_url)}" target="_blank" rel="noopener">${esc(e.source_title)}</a> · ${esc(e.license_name)}`;
+    return `<div class="ep">${thumb}<div>
+      <h3>${esc(title || '(rendering…)')}</h3>
+      <div class="meta">${src}</div>
+      <div class="meta">Status: <b>${esc(e.status)}</b>${e.progress && e.status==='rendering' ? ' — '+esc(e.progress) : ''}${e.error ? ` · <span style="color:var(--bad)">${esc(e.error.slice(0,200))}</span>` : ''}</div>
+      <div class="row" style="margin-top:8px;">${vids}
+        ${e.status!=='rendering' ? `<button onclick="showDispute(${e.id})">Copyright-claim reply</button>` : ''}
+        ${['ready','failed','posted'].includes(e.status) ? `<button class="danger" onclick="delEp(${e.id})">Delete</button>` : ''}</div>
+      ${e.posts.length ? `<table><tr><th>Where</th><th>Status</th><th>When</th><th></th><th></th></tr>${e.posts.map(postRow).join('')}</table>` : ''}
+    </div></div>`;
+  }).join('<div style="height:10px"></div>');
+}
+
+async function loadLogs() {
+  const logs = await api('GET', '/api/autopilot/logs?limit=80');
+  document.getElementById('logs').innerHTML = logs.map(l =>
+    `<div class="${esc(l.level)}">${esc(localTime(l.created_at))} — ${esc(l.message)}</div>`).join('') || '<div class="note">No activity yet.</div>';
+}
+
+function play(id, which) {
+  document.getElementById('modalBody').innerHTML = `<video controls autoplay playsinline src="/api/autopilot/episodes/${id}/file/${which}"></video>`;
+  document.getElementById('modal').classList.add('show');
+}
+function closeModal() {document.getElementById('modal').classList.remove('show'); document.getElementById('modalBody').innerHTML='';}
+async function showDispute(id) {
+  const d = await api('GET', `/api/autopilot/episodes/${id}/dispute`);
+  document.getElementById('modalBody').innerHTML = `<h2 style="font-size:15px;margin-bottom:8px;">Reply to a false copyright claim</h2>
+    <p class="note" style="margin-bottom:8px;">If YouTube shows a Content ID claim on this video, choose “Dispute” → “Public domain” and paste this.</p>
+    <textarea rows="12" id="disputeText" readonly>${esc(d.text)}</textarea>
+    <button style="margin-top:8px" onclick="copyText(document.getElementById('disputeText').value)">Copy</button>`;
+  document.getElementById('modal').classList.add('show');
+}
+async function copyText(t) {try {await navigator.clipboard.writeText(t); toast('Copied');} catch(e) {toast('Copy failed — select and copy manually', true);}}
+async function postAct(id, action) {try {await api('POST', `/api/autopilot/posts/${id}/${action}`); toast('Done'); refresh();} catch(e) {toast(e.message, true);}}
+async function delEp(id) {if (!confirm('Delete this video and cancel its scheduled posts?')) return; await api('DELETE', `/api/autopilot/episodes/${id}`); refresh();}
+
+async function refresh() {try {await Promise.all([loadStatus(), loadEpisodes(), loadLogs()]);} catch(e) {console.error(e);}}
+
+const qs = new URLSearchParams(location.search);
+if (qs.get('connected')) toast(qs.get('connected') + ' connected');
+if (qs.get('error')) toast(qs.get('error'), true);
+if (qs.toString()) history.replaceState(null, '', '/autopilot');
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

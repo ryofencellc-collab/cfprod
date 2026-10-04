@@ -1,14 +1,20 @@
 """
-ClipForge v6.0 — Job Runner
+ClipForge — Job Runner
 Orchestrates the full pipeline for every job type:
   - process: full pipeline, all moments
   - package: top 3 moments, 16:9
   - demo: top 3 moments, 16:9, 20s clips
   - split: sequential parts for archive content
+
+Jobs go through a queue worked by MAX_WORKERS threads, so several submissions
+never render at once and exhaust memory. Jobs left queued/processing when the
+server stopped are re-queued on startup.
 """
 import os
+import queue
 import threading
 import traceback
+from config import MAX_WORKERS, VERSION
 from db.database import get_conn, log, set_step
 from core.engine import (
     step1_download,
@@ -16,19 +22,56 @@ from core.engine import (
     step3_detect_moments,
     step4_cut_clips,
     step5_burn_captions,
-    step6_apply_watermark,
-    step7_apply_watermark,
     step_package_mode,
     step_split_mode,
     generate_title,
 )
 
-VERSION = "6.0"
+_queue: "queue.Queue[int]" = queue.Queue()
+_workers_started = False
+_start_lock = threading.Lock()
 
 
 def run_job(job_id: int):
-    """Start job processing in a background thread."""
-    threading.Thread(target=_process, args=(job_id,), daemon=True).start()
+    """Queue a job for processing."""
+    _queue.put(job_id)
+
+
+def queue_size() -> int:
+    return _queue.qsize()
+
+
+def start_workers():
+    """Start worker threads and re-queue jobs interrupted by a restart."""
+    global _workers_started
+    with _start_lock:
+        if _workers_started:
+            return
+        _workers_started = True
+    for i in range(MAX_WORKERS):
+        threading.Thread(target=_worker, name=f"job-worker-{i}", daemon=True).start()
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, status FROM jobs WHERE status IN ('queued','processing') ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    for r in rows:
+        if r["status"] == "processing":
+            log(r["id"], "Server restarted while this job was running — re-queued", "warn")
+        _queue.put(r["id"])
+
+
+def _worker():
+    while True:
+        job_id = _queue.get()
+        try:
+            _process(job_id)
+        except Exception:
+            print(traceback.format_exc())
+        finally:
+            _queue.task_done()
 
 
 def _process(job_id: int):
@@ -36,6 +79,11 @@ def _process(job_id: int):
     conn = get_conn()
 
     try:
+        # A re-queued job may have stored moments from its interrupted run.
+        conn.execute("DELETE FROM moments WHERE job_id=?", (job_id,))
+        conn.execute("UPDATE jobs SET status='processing', error=NULL WHERE id=?", (job_id,))
+        conn.commit()
+
         c = conn.cursor()
         c.execute("SELECT * FROM jobs WHERE id=?", (job_id,))
         row = c.fetchone()
@@ -62,6 +110,7 @@ def _process(job_id: int):
         apply_wm      = bool(job.get("apply_watermark", 1))
         process_limit = int(job.get("process_limit") or 0)
         whisper_model = job.get("whisper_model") or "base"
+        face_track    = job.get("face_track") != 0  # NULL on old rows means on
 
         # Load client
         c.execute("SELECT * FROM clients WHERE id=?", (client_id,))
@@ -70,7 +119,7 @@ def _process(job_id: int):
 
         # Watermark text — client name or ClipForge
         watermark_text = client.get("name") or "ClipForge"
-        watermark_font = "Arial Rounded MT Bold"
+        watermark_font = "Archivo Black"
 
         # Check client video limit
         limit = client.get("video_limit", 0)
@@ -178,27 +227,19 @@ def _process(job_id: int):
                 )
             conn.commit()
 
-            raw_clips = step4_cut_clips(video_path, moments, job_id, fmt, zoom_punch)
+            raw_clips = step4_cut_clips(video_path, moments, job_id, fmt, zoom_punch,
+                                        face_track=face_track)
             if not raw_clips:
                 raise RuntimeError("No clips were successfully cut.")
 
-            if burn_captions:
-                captioned = step5_burn_captions(
-                    raw_clips, video_path, segments, job_id,
-                    font, text_color, outline_color, preset, font_size, position
-                )
-            else:
-                captioned = raw_clips
-                log(job_id, "Captions disabled — skipping step 5")
-
-            if apply_wm and captioned:
-                final_clips = step7_apply_watermark(
-                    captioned, job_id,
-                    watermark_text=watermark_text,
-                    watermark_font=watermark_font,
-                )
-            else:
-                final_clips = captioned
+            # Captions, hook and watermark are burned in a single encode.
+            final_clips = step5_burn_captions(
+                raw_clips, video_path, segments, job_id,
+                font, text_color, outline_color, preset, font_size, position,
+                captions=burn_captions, hooks=add_hooks,
+                watermark_text=watermark_text if apply_wm else None,
+                highlight_color=highlight_color,
+            )
 
         # ── Save clips to DB ─────────────────────────────────────────────
         set_step(job_id, "Saving clips...", 99)

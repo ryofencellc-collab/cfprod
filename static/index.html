@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>ClipForge v6.0</title>
+<link rel="icon" href="/static/cf_watermark.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#e8e8e0;min-height:100vh;}
@@ -170,11 +171,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <body>
 <div class="topbar">
   <div class="logo-text">Clip<span>Forge</span></div>
-  <span class="vbadge">v6.0</span>
+  <span class="vbadge">v7.0</span>
   <span class="ai-badge">⚡ AI</span>
   <div class="nav">
-    <a href="/" class="on">Clips</a>
+    <a href="/dashboard" class="on">Clips</a>
+    <a href="#" onclick="openLeads();return false;">Leads <span id="leadCount"></span></a>
+    <a href="/autopilot">Archive Autopilot</a>
     <a href="/debug">Debug</a>
+    <a href="#" onclick="logout();return false;">Log out</a>
   </div>
 </div>
 
@@ -281,6 +285,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <label class="trow"><input type="checkbox" id="capOn" checked> Captions</label>
           <label class="trow" style="margin-top:4px;"><input type="checkbox" id="wmOn" checked> Watermark</label>
           <label class="trow" style="margin-top:4px;"><input type="checkbox" id="hooksOn"> AI Hooks</label>
+          <label class="trow" style="margin-top:4px;"><input type="checkbox" id="faceOn" checked> Face tracking</label>
         </div>
       </div>
     </div>
@@ -393,6 +398,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- Leads -->
+<div class="mb" id="leadsModal">
+  <div class="modal" style="max-width:560px;">
+    <h3>📥 Leads from your website</h3>
+    <div id="leadList"></div>
+    <div class="mbtns"><button class="bcn" onclick="closeM('leads')">Close</button></div>
+  </div>
+</div>
+
 <!-- Share -->
 <div class="mb" id="shareModal">
   <div class="modal">
@@ -449,8 +463,45 @@ async function api(m, p, b) {
   if (b instanceof FormData) o.body = b;
   else if (b) {o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(b);}
   const r = await fetch(p, o);
+  if (r.status === 401) {location.href = '/login?next=/dashboard'; throw new Error('Session expired');}
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+async function logout() {await fetch('/api/auth/logout', {method: 'POST'}); location.href = '/login';}
+
+function escHtml(s) {return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+async function loadLeadCount() {
+  try {
+    const leads = await api('GET', '/api/leads/');
+    const n = leads.filter(l => l.status === 'new').length;
+    document.getElementById('leadCount').textContent = n ? `(${n})` : '';
+  } catch (e) {}
+}
+
+async function openLeads() {
+  const leads = await api('GET', '/api/leads/');
+  const box = document.getElementById('leadList');
+  box.innerHTML = leads.length ? leads.map(l => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;font-size:12px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <b style="color:#fff">${escHtml(l.name)}</b>
+        <span style="color:var(--gold)">${escHtml(l.status)}</span>
+      </div>
+      <div><a href="mailto:${escHtml(l.email)}" style="color:#60a5fa">${escHtml(l.email)}</a></div>
+      ${l.channel_url ? `<div style="color:var(--muted);word-break:break-all">${escHtml(l.channel_url)}</div>` : ''}
+      ${l.message ? `<div style="margin-top:6px;white-space:pre-wrap">${escHtml(l.message)}</div>` : ''}
+      <div style="color:var(--dim);margin-top:6px">${escHtml(l.created_at)}</div>
+      ${l.status !== 'converted' ? `<button class="bpr" style="margin-top:8px" onclick="convertLead(${l.id})">→ Make client</button>` : ''}
+    </div>`).join('') : '<div style="color:var(--muted);font-size:12px">No leads yet. Share your site link to start getting them.</div>';
+  openM('leads');
+}
+
+async function convertLead(id) {
+  await api('POST', `/api/leads/${id}/convert`);
+  toast('Client created — run a demo for them', 'success');
+  closeM('leads'); await loadClients(); loadLeadCount();
 }
 
 async function loadClients() {
@@ -540,6 +591,7 @@ function buildFD(pkgMode=false, demoMode=false, splitMode=false) {
   fd.append('caption_position', capPos);
   fd.append('process_limit', document.getElementById('limitSel').value);
   fd.append('whisper_model', whisperModel);
+  fd.append('face_track', document.getElementById('faceOn').checked ? '1' : '0');
   return fd;
 }
 
@@ -791,6 +843,7 @@ function closeM(n) {document.getElementById(n+'Modal').classList.remove('show');
 document.querySelectorAll('.mb').forEach(bg=>bg.addEventListener('click',e=>{if(e.target===bg)bg.classList.remove('show');}));
 document.getElementById('fontSel').addEventListener('change', function(){capFont=this.value;});
 loadClients();
+loadLeadCount();
 </script>
 </body>
 </html>
