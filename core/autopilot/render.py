@@ -68,7 +68,8 @@ def _textfile(tmp: str, name: str, text: str) -> str:
 def _ass_file(tmp: str, words: list, offset: float, length: float, fmt: str,
               font: str, highlight: str, position: str = "bottom") -> str:
     segs = words_to_segments(words, offset)
-    ass = build_ass_karaoke(segs, 0.0, length, fmt, font, "black", None, position, highlight)
+    size = {"16:9": 66, "9:16": 84}.get(fmt)  # a bit larger than the clipping defaults
+    ass = build_ass_karaoke(segs, 0.0, length, fmt, font, "black", size, position, highlight)
     if not ass:
         return None
     return _textfile(tmp, f"cap_{fmt.replace(':', 'x')}.ass", ass)
